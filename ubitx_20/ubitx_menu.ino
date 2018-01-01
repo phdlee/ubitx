@@ -246,6 +246,7 @@ int menuCWSpeed(int btn){
       delay(2000);
     }
     printLine2("");
+    updateDisplay();
     menuOn = 0;
 }
 
