@@ -10,7 +10,7 @@ KD8CEC
 0.21
   -fixed the cw side tone configuration.
   -Fix the error that the frequency is over.
-  -fixed frequency display (alignment, point)
+  -fixed frequency display (alignment, point) 
 
 
 0.20 
