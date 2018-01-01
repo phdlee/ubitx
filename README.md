@@ -1,4 +1,13 @@
+uBITX firmware, written for the Raduino/Arduino control of uBITX transceivers
+This project is based on https://github.com/afarhan/ubitx and all copyright is inherited.
 
+The copyright information of the original is below.
+
+KD8CEC
+
+-----------------------------------------------------------------------------
+Original README.md
+-----------------------------------------------------------------------------
 uBITX firmware, written for the Raduino/Arduino control of uBITX transceigers
 
 Copyright (C) 2017,  Ashhar Farhan

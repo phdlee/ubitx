@@ -168,6 +168,10 @@ int count = 0;          //to generally count ticks, loops, etc
 #define LOWEST_FREQ  (3000000l)
 #define HIGHEST_FREQ (30000000l)
 
+//When the frequency is moved by the dial, the maximum value by KD8CEC
+#define LOWEST_FREQ_DIAL  (3000l)
+#define HIGHEST_FREQ_DIAL (60000000l)
+
 //we directly generate the CW by programmin the Si5351 to the cw tx frequency, hence, both are different modes
 //these are the parameter passed to startTx
 #define TX_SSB 0
@@ -391,31 +395,39 @@ void checkButton(){
 void doTuning(){
   int s;
   unsigned long prev_freq;
+  int incdecValue = 0;
 
   s = enc_read();
   if (s){
     prev_freq = frequency;
     
     if (s > 10)
-      frequency += 200000l;
+      incdecValue = 200000l;
     if (s > 7)
-      frequency += 10000l;
+      incdecValue = 10000l;
     else if (s > 4)
-      frequency += 1000l;
+      incdecValue = 1000l;
     else if (s > 2)
-      frequency += 500;
+      incdecValue = 500;
     else if (s > 0)
-      frequency +=  50l;
+      incdecValue =  50l;
     else if (s > -2)
-      frequency -= 50l;
+      incdecValue = -50l;
     else if (s > -4)
-      frequency -= 500l;
+      incdecValue = -500l;
     else if (s > -7)
-      frequency -= 1000l;
+      incdecValue = -1000l;
     else if (s > -9)
-      frequency -= 10000l;
+      incdecValue = -10000l;
     else
-      frequency -= 200000l;
+      incdecValue = -200000l;
+
+    if (incdecValue > 0 && frequency + incdecValue > HIGHEST_FREQ_DIAL)
+        frequency = HIGHEST_FREQ_DIAL;      
+    else if (incdecValue < 0 && frequency < -incdecValue + LOWEST_FREQ_DIAL)  //for compute and compare based integer type.
+      frequency = LOWEST_FREQ_DIAL;
+    else
+      frequency += incdecValue;
       
     if (prev_freq < 10000000l && frequency > 10000000l)
       isUSB = true;

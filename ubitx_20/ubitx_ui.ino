@@ -100,11 +100,12 @@ void printLine2(char *c){
 void updateDisplay() {
   // tks Jack Purdum W8TEE
   // replaced fsprint commmands by str commands for code size reduction
-
+  
+  // replace code for Frequency numbering error (alignment, point...) by KD8CEC
+  int i;
+  unsigned long tmpFreq = frequency; //
+  
   memset(c, 0, sizeof(c));
-  memset(b, 0, sizeof(b));
-
-  ultoa(frequency, b, DEC);
 
   if (inTx){
     if (cwTimeout > 0)
@@ -127,23 +128,17 @@ void updateDisplay() {
       strcat(c, "B:");
   }
 
-
-
-  //one mhz digit if less than 10 M, two digits if more
-  if (frequency < 10000000l){
-    c[6] = ' ';
-    c[7]  = b[0];
-    strcat(c, ".");
-    strncat(c, &b[1], 3);    
-    strcat(c, ".");
-    strncat(c, &b[4], 3);
-  }
-  else {
-    strncat(c, b, 2);
-    strcat(c, ".");
-    strncat(c, &b[2], 3);
-    strcat(c, ".");
-    strncat(c, &b[5], 3);    
+  //display frequency
+  for (int i = 15; i >= 6; i--) {
+    if (tmpFreq > 0) {
+      if (i == 12 || i == 8) c[i] = '.';
+      else {
+        c[i] = tmpFreq % 10 + 0x30;
+        tmpFreq /= 10;
+      }
+    }
+    else
+      c[i] = ' ';
   }
 
   if (inTx)
