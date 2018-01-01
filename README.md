@@ -7,10 +7,6 @@ KD8CEC
 
 ----------------------------------------------------------------------------
 ## REVISION RECORD
-0.21.2
-- save mode to eeprom by vfo change
-- changed defalut LSB / USB
-
 
 0.21
   - fixed the cw side tone configuration.
