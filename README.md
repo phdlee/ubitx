@@ -7,14 +7,19 @@ KD8CEC
 
 ----------------------------------------------------------------------------
 ## REVISION RECORD
+0.21.2
+- save mode to eeprom by vfo change
+- changed defalut LSB / USB
+
+
 0.21
-  -fixed the cw side tone configuration.
-  -Fix the error that the frequency is over.
-  -fixed frequency display (alignment, point) 
+  - fixed the cw side tone configuration.
+  - Fix the error that the frequency is over.
+  - fixed frequency display (alignment, point) 
 
 
 0.20 
-  -original uBITX software (Ashhar Farhan)
+  - original uBITX software (Ashhar Farhan)
 
 ## Original README.md
 uBITX firmware, written for the Raduino/Arduino control of uBITX transceigers
