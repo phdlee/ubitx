@@ -1,10 +1,20 @@
 uBITX firmware, written for the Raduino/Arduino control of uBITX transceivers
 This project is based on https://github.com/afarhan/ubitx and all copyright is inherited.
-
 The copyright information of the original is below.
 
 KD8CEC
 
+----------------------------------------------------------------------------
+REVISION RECORD
+----------------------------------------------------------------------------
+v0.21
+  .fixed the cw side tone configuration.
+  .Fix the error that the frequency is over.
+  .fixed frequency display (alignment, point)
+
+
+v0.20 
+  original uBITX sketch (Ashhar Farhan)
 -----------------------------------------------------------------------------
 Original README.md
 -----------------------------------------------------------------------------
