@@ -148,9 +148,9 @@ void processCATCommand(byte* cmd) {
     if (!inTx) {
       response[0] = 0;
       txCAT = true;
-      startTx(TX_SSB);
-      updateDisplay();
-    } else {
+      startTx(TX_SSB, 1);
+    } 
+    else {
       response[0] = 0xf0;
     } 
     Serial.write(response,1);

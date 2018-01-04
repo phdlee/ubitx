@@ -141,6 +141,12 @@ int count = 0;          //to generally count ticks, loops, etc
 #define CW_SIDETONE 24
 #define CW_SPEED 28
 
+//AT328 has 1KBytes EEPROM
+#define VFO_A_MODE 256
+#define VFO_B_MODE 257
+#define CW_DELAY 258
+#define CW_START 259
+
 /**
  * The uBITX is an upconnversion transceiver. The first IF is at 45 MHz.
  * The first IF frequency is not exactly at 45 Mhz but about 5 khz lower,
@@ -186,6 +192,20 @@ unsigned long frequency, ritRxFrequency, ritTxFrequency;  //frequency is the cur
 int cwSpeed = 100; //this is actuall the dot period in milliseconds
 extern int32_t calibration;
 
+//for store the mode in eeprom
+byte vfoA_mode=0, vfoB_mode = 0;  //0: default, 1:not use, 2:LSB, 3:USB, 4:CW, 5:AM, 6:FM
+bool isSplitOn = false;
+byte cwDelayTime = 60;
+byte delayBeforeCWStartTime = 50;
+
+//sideTonePitch + sideToneSub = sideTone
+byte sideTonePitch=0;
+byte sideToneSub = 0;
+
+//DialLock
+byte isDialLock = 0;
+
+
 /**
  * Raduino needs to keep track of current state of the transceiver. These are a few variables that do it
  */
@@ -205,6 +225,24 @@ boolean modeCalibrate = false;//this mode of menus shows extended menus to calib
  * Below are the basic functions that control the uBitx. Understanding the functions before 
  * you start hacking around
  */
+
+/*
+  KD8CEC
+  When using the basic delay of the Arduino, the program freezes.
+  When the delay is used, the program will generate an error because it is not communicating, 
+  so Create a new delay function that can do background processing.
+ */
+ 
+unsigned long delayBeforeTime = 0;
+void delay_background(unsigned delayTime, byte fromType){
+  delayBeforeTime = millis();
+
+  while (millis() <= delayBeforeTime + delayTime) {
+    //Background Work
+    Check_Cat(fromType);
+  }
+}
+ 
 
 /**
  * Select the properly tx harmonic filters
@@ -261,7 +299,10 @@ void setTXFilters(unsigned long freq){
  
 void setFrequency(unsigned long f){
   uint64_t osc_f;
- 
+
+  //1 digits discarded
+  f = (f / 10) * 10;
+  
   setTXFilters(f);
 
   if (isUSB){
@@ -282,7 +323,7 @@ void setFrequency(unsigned long f){
  * Note: In cw mode, doesnt key the radio, only puts it in tx mode
  */
  
-void startTx(byte txMode){
+void startTx(byte txMode, byte isDisplayUpdate){
   unsigned long tx_freq = 0;  
   digitalWrite(TX_RX, 1);
   inTx = 1;
@@ -306,7 +347,10 @@ void startTx(byte txMode){
     else
       si5351bx_setfreq(2, frequency - sideTone); 
   }
-  updateDisplay();
+
+  //reduce latency time when begin of CW mode
+  if (isDisplayUpdate == 1)
+    updateDisplay();
 }
 
 void stopTx(){
@@ -359,7 +403,7 @@ void checkPTT(){
     return;
     
   if (digitalRead(PTT) == 0 && inTx == 0){
-    startTx(TX_SSB);
+    startTx(TX_SSB, 1);
     delay(50); //debounce the PTT
   }
 	
@@ -378,9 +422,12 @@ void checkButton(){
     return;
  
   doMenu();
+  
   //wait for the button to go up again
-  while(btnDown())
+  while(btnDown()) {
     delay(10);
+    Check_Cat(0);
+  }
   delay(50);//debounce
 }
 
@@ -396,6 +443,9 @@ void doTuning(){
   int s;
   unsigned long prev_freq;
   int incdecValue = 0;
+
+  if (isDialLock == 1)
+    return;
 
   s = enc_read();
   if (s){
@@ -474,17 +524,53 @@ void initSettings(){
   EEPROM.get(VFO_B, vfoB);
   EEPROM.get(CW_SIDETONE, sideTone);
   EEPROM.get(CW_SPEED, cwSpeed);
+
+  //for Save VFO_A_MODE to eeprom
+  //0: default, 1:not use, 2:LSB, 3:USB, 4:CW, 5:AM, 6:FM
+  EEPROM.get(VFO_A_MODE, vfoA_mode);
+  EEPROM.get(VFO_B_MODE, vfoB_mode);
+
+  //CW DelayTime
+  EEPROM.get(CW_DELAY, cwDelayTime);
+
+  //CW interval between TX and CW Start
+  EEPROM.get(CW_START, delayBeforeCWStartTime);
+  
+  if (cwDelayTime < 1 || cwDelayTime > 250)
+    cwDelayTime = 60;
+
+  if (vfoA_mode < 2)
+    vfoA_mode = 2;
+  
+  if (vfoB_mode < 2)
+    vfoB_mode = 3;
+
   if (usbCarrier > 12010000l || usbCarrier < 11990000l)
     usbCarrier = 11997000l;
-  if (vfoA > 35000000l || 3500000l > vfoA)
+    
+  if (vfoA > 35000000l || 3500000l > vfoA) {
      vfoA = 7150000l;
-  if (vfoB > 35000000l || 3500000l > vfoB)
+     vfoA_mode = 2;
+  }
+  
+  if (vfoB > 35000000l || 3500000l > vfoB) {
      vfoB = 14150000l;  
+     vfoB_mode = 3;
+  }
+  
   if (sideTone < 100 || 2000 < sideTone) 
     sideTone = 800;
   if (cwSpeed < 10 || 1000 < cwSpeed) 
     cwSpeed = 100;
-    
+
+  if (sideTone < 300 || sideTone > 1000) {
+    sideTonePitch = 0;
+    sideToneSub = 0;;
+  }
+  else{
+    sideTonePitch = (sideTone - 300) / 50;
+    sideToneSub = sideTone % 50;
+  }
 }
 
 void initPorts(){
@@ -522,21 +608,29 @@ void initPorts(){
 
 void setup()
 {
-  Serial.begin(9600);
-  
+  //Init EEProm for factory reset test
+  /*
+  for (int i = 0; i < 512; i++)
+    EEPROM.write(i, 0);
+  */
+  //Serial.begin(9600);
   lcd.begin(16, 2);
 
   //we print this line so this shows up even if the raduino 
   //crashes later in the code
+  printLine2("CEC Ver 0.22"); 
   printLine1("uBITX v0.20"); 
-  delay(500);
+  delay_background(500, 0);
+  printLine2(""); 
 
+  Init_Cat(38400, SERIAL_8N1);
   initMeter(); //not used in this build
   initSettings();
   initPorts();     
   initOscillators();
 
   frequency = vfoA;
+  byteToMode(vfoA_mode);
   setFrequency(vfoA);
   updateDisplay();
 
@@ -548,7 +642,8 @@ void setup()
 /**
  * The loop checks for keydown, ptt, function button and tuning.
  */
-
+//for debug
+int dbgCnt = 0;
 byte flasher = 0;
 void loop(){ 
   
@@ -566,5 +661,11 @@ void loop(){
   }
   
   //we check CAT after the encoder as it might put the radio into TX
-  checkCAT();
+  //checkCAT();
+  Check_Cat(inTx? 1 : 0);
+
+  /*
+  lcd.setCursor(0, 0);             // place the cursor at the beginning of the selected line
+  lcd.print(dbgCnt++);
+  */
 }

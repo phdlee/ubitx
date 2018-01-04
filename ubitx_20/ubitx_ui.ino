@@ -34,11 +34,22 @@ byte s_meter_bitmap[] = {
   B00001,B00001,B00001,B00001,B00101,B00101,B00101,B11011
 };
 
+byte lock_bitmap[8] = {
+  0b01110,
+  0b10001,
+  0b10001,
+  0b11111,
+  0b11011,
+  0b11011,
+  0b11111,
+  0b00000};
 
 
 // initializes the custom characters
 // we start from char 1 as char 0 terminates the string!
 void initMeter(){
+  lcd.createChar(0, lock_bitmap);
+  
   lcd.createChar(1, s_meter_bitmap);
   lcd.createChar(2, s_meter_bitmap + 8);
   lcd.createChar(3, s_meter_bitmap + 16);
@@ -144,6 +155,12 @@ void updateDisplay() {
   if (inTx)
     strcat(c, " TX");
   printLine(1, c);
+
+  if (isDialLock == 1)
+  {
+    lcd.setCursor(3,1);
+    lcd.write((uint8_t)0);
+  }
 
 /*
   //now, the second line
