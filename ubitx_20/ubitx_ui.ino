@@ -5,6 +5,8 @@
  * of the radio. Occasionally, it is used to provide a two-line information that is 
  * quickly cleared up.
  */
+//#define printLineF1(x) (printLineF(1, x))
+//#define printLineF2(x) (printLineF(0, x))
 
 //returns true if the button is pressed
 int btnDown(){
@@ -23,9 +25,9 @@ int btnDown(){
  * The current reading of the meter is assembled in the string called meter
  */
 
-char meter[17];
+//char meter[17];
 
-byte s_meter_bitmap[] = {
+const PROGMEM uint8_t s_meter_bitmap[] = {
   B00000,B00000,B00000,B00000,B00000,B00100,B00100,B11011,
   B10000,B10000,B10000,B10000,B10100,B10100,B10100,B11011,
   B01000,B01000,B01000,B01000,B01100,B01100,B01100,B11011,
@@ -33,8 +35,9 @@ byte s_meter_bitmap[] = {
   B00010,B00010,B00010,B00010,B00110,B00110,B00110,B11011,
   B00001,B00001,B00001,B00001,B00101,B00101,B00101,B11011
 };
+PGM_P ps_meter_bitmap = reinterpret_cast<PGM_P>(s_meter_bitmap);
 
-byte lock_bitmap[8] = {
+const PROGMEM uint8_t lock_bitmap[8] = {
   0b01110,
   0b10001,
   0b10001,
@@ -43,19 +46,42 @@ byte lock_bitmap[8] = {
   0b11011,
   0b11111,
   0b00000};
+PGM_P plock_bitmap = reinterpret_cast<PGM_P>(lock_bitmap);
 
 
 // initializes the custom characters
 // we start from char 1 as char 0 terminates the string!
 void initMeter(){
-  lcd.createChar(0, lock_bitmap);
+  uint8_t tmpbytes[8];
+  byte i;
+
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(plock_bitmap + i);
+  lcd.createChar(0, tmpbytes);
   
-  lcd.createChar(1, s_meter_bitmap);
-  lcd.createChar(2, s_meter_bitmap + 8);
-  lcd.createChar(3, s_meter_bitmap + 16);
-  lcd.createChar(4, s_meter_bitmap + 24);
-  lcd.createChar(5, s_meter_bitmap + 32);
-  lcd.createChar(6, s_meter_bitmap + 40);
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(ps_meter_bitmap + i);
+  lcd.createChar(1, tmpbytes);
+
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(ps_meter_bitmap + i + 8);
+  lcd.createChar(2, tmpbytes);
+  
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(ps_meter_bitmap + i + 16);
+  lcd.createChar(3, tmpbytes);
+  
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(ps_meter_bitmap + i + 24);
+  lcd.createChar(4, tmpbytes);
+  
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(ps_meter_bitmap + i + 28);
+  lcd.createChar(5, tmpbytes);
+  
+  for (i = 0; i < 8; i++)
+    tmpbytes[i] = pgm_read_byte(ps_meter_bitmap + i + 32);
+  lcd.createChar(6, tmpbytes);
 }
 
 /**
@@ -64,6 +90,8 @@ void initMeter(){
  * characters 2 to 6 are used to draw the needle in positions 1 to within the block
  * This displays a meter from 0 to 100, -1 displays nothing
  */
+
+ /*
 void drawMeter(int8_t needle){
   int16_t best, i, s;
 
@@ -84,6 +112,7 @@ void drawMeter(int8_t needle){
     meter[i-1] = 6;
   meter[i] = 0;
 }
+*/
 
 // The generic routine to display one line on the LCD 
 void printLine(char linenmbr, char *c) {
@@ -98,6 +127,52 @@ void printLine(char linenmbr, char *c) {
   }
 }
 
+void printLineF(char linenmbr, const __FlashStringHelper *c)
+{
+  int i;
+  char tmpBuff[17];
+  PGM_P p = reinterpret_cast<PGM_P>(c);  
+
+  for (i = 0; i < 17; i++){
+    unsigned char fChar = pgm_read_byte(p++);
+    tmpBuff[i] = fChar;
+    if (fChar == 0)
+      break;
+  }
+
+  printLine(linenmbr, tmpBuff);
+}
+
+
+//#define printLineF1(x) (printLineF(1, x))
+//#define printLineF2(x) (printLineF(0, x))
+
+/*
+//for reduce use memory
+void printLineF(char linenmbr, const __FlashStringHelper *c) {
+  byte i;
+  byte sameData = 0;
+
+  for (i = 0;i < strlen
+  
+  if (strcmp((char *)c, printBuff[linenmbr])) {     // only refresh the display when there was a change
+    lcd.setCursor(0, linenmbr);             // place the cursor at the beginning of the selected line
+    lcd.print(c);
+    strcpy(printBuff[linenmbr], c);
+
+    for (byte i = strlen((char *)c); i < 16; i++) { // add white spaces until the end of the 16 characters line is reached
+      lcd.print(' ');
+    }
+  }
+  else
+  {
+    lcd.setCursor(0, linenmbr);             // place the cursor at the beginning of the selected line
+    lcd.print("Exists");
+  }
+}
+*/
+
+
 //  short cut to print to the first line
 void printLine1(char *c){
   printLine(1,c);
@@ -105,6 +180,20 @@ void printLine1(char *c){
 //  short cut to print to the first line
 void printLine2(char *c){
   printLine(0,c);
+}
+
+//  short cut to print to the first line
+void printLine1Clear(){
+  printLine(1,"");
+}
+//  short cut to print to the first line
+void printLine2Clear(){
+  printLine(0, "");
+}
+
+void printLine2ClearAndUpdate(){
+  printLine(0, "");
+  updateDisplay();
 }
 
 // this builds up the top line of the display with frequency and mode
@@ -158,8 +247,13 @@ void updateDisplay() {
 
   if (isDialLock == 1)
   {
-    lcd.setCursor(3,1);
+    lcd.setCursor(5,1);
     lcd.write((uint8_t)0);
+  }
+  else
+  {
+    lcd.setCursor(5,1);
+    lcd.write(":");
   }
 
 /*

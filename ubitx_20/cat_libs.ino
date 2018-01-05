@@ -30,6 +30,8 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 **************************************************************************/
+#define printLineF1(x) (printLineF(1, x))
+#define printLineF2(x) (printLineF(0, x))
 
 //for broken protocol
 #define MAX_PROTOCOL_SKIP_COUNT 200
@@ -207,19 +209,12 @@ void CatSetMode(byte tmpMode, byte fromType)
 
 void ReadEEPRom(byte fromType)
 {
-  // This is to make hamlib happy, PC requested reading two bytes
-  // we must answer with two bytes, we forge it as empty ones or...
-  // if the second byte in the request is 0x78 we have to send the first
-  // with the 5th bit set if the USB or zero if LSB.
-
-  // mem zone to "read"
   byte temp0 = CAT_BUFF[0];
   byte temp1 = CAT_BUFF[1];
 
-  // clear the CAT_BUFF
-  //npadClear();
   CAT_BUFF[0] = 0;
   CAT_BUFF[1] = 0;
+  
   switch (temp1)
   {
     case 0x45 : //
@@ -423,8 +418,7 @@ void WriteEEPRom(byte fromType)
       if (sideTonePitch != 0 || sideToneSub != 0)
       {
         sideTone = (sideTonePitch * 50 + 300) + sideToneSub;
-        //debugBytePrint(CAT_BUFF[2], sideToneSub, 0);
-        printLine2("Sidetone set! CAT");
+        printLineF2(F("Sidetone set! CAT"));
         EEPROM.put(CW_SIDETONE, sideTone);
         delay(500);
         printLine2("");
@@ -436,8 +430,7 @@ void WriteEEPRom(byte fromType)
       if (sideTonePitch != 0 || sideToneSub != 0)
       {
         sideTone = (sideTonePitch * 50 + 300) + sideToneSub;
-        //debugBytePrint(CAT_BUFF[2], sideToneSub, 0);
-        printLine2("Sidetone set! CAT");
+        printLineF2(F("Sidetone set! CAT"));
         EEPROM.put(CW_SIDETONE, sideTone);
         delay(500);
         printLine2("");
@@ -457,7 +450,7 @@ void WriteEEPRom(byte fromType)
     case 0x60 : //CW Delay (10-2500 ms) (#17)  From 1 to 250 (decimal) with each step representing 10 ms
       //CAT_BUFF[0] = 0x19;
       cwDelayTime = CAT_BUFF[2];
-      printLine2("CW Speed set!");
+      printLineF2(F("CW Speed set!"));
       EEPROM.put(CW_DELAY, cwDelayTime);
       delay(500);
       printLine2("");
@@ -466,7 +459,7 @@ void WriteEEPRom(byte fromType)
       //5-0  CW Speed (4-60 WPM) (#21) From 0 to 38 (HEX) with 0 = 4 WPM and 38 = 60 WPM (1 WPM steps)
       //7-6  Batt-Chg (6/8/10 Hours (#11)  00 = 6 Hours, 01 = 8 Hours, 10 = 10 Hours
       cwSpeed = 1200 / ((CAT_BUFF[2] & 0x3F) + 4);
-      printLine2("CW Speed set!");
+      printLineF2(F("CW Speed set!"));
       EEPROM.put(CW_SPEED, cwSpeed);
       delay(500);
       printLine2("");

@@ -147,6 +147,11 @@ int count = 0;          //to generally count ticks, loops, etc
 #define CW_DELAY 258
 #define CW_START 259
 
+//AUTO KEY STRUCTURE
+#define CW_AUTO_MAGIC_KEY 800   //0x73
+#define CW_AUTO_COUNT     801   //0 ~ 255
+#define CW_AUTO_DATA  803   //
+
 /**
  * The uBITX is an upconnversion transceiver. The first IF is at 45 MHz.
  * The first IF frequency is not exactly at 45 Mhz but about 5 khz lower,
@@ -187,13 +192,22 @@ char ritOn = 0;
 char vfoActive = VFO_A;
 int8_t meter_reading = 0; // a -1 on meter makes it invisible
 unsigned long vfoA=7150000L, vfoB=14200000L, sideTone=800, usbCarrier;
+unsigned long vfoA_eeprom, vfoB_eeprom; //for protect eeprom life
 unsigned long frequency, ritRxFrequency, ritTxFrequency;  //frequency is the current frequency on the dial
 
 int cwSpeed = 100; //this is actuall the dot period in milliseconds
 extern int32_t calibration;
 
 //for store the mode in eeprom
-byte vfoA_mode=0, vfoB_mode = 0;  //0: default, 1:not use, 2:LSB, 3:USB, 4:CW, 5:AM, 6:FM
+byte vfoA_mode=0, vfoB_mode = 0;          //0: default, 1:not use, 2:LSB, 3:USB, 4:CW, 5:AM, 6:FM
+byte vfoA_mode_eeprom, vfoB_mode_eeprom;  //for protect eeprom life
+
+//KD8CEC
+//for AutoSave and protect eeprom life
+byte saveIntervalSec = 10;  //second
+unsigned long saveCheckTime = 0;
+unsigned long saveCheckFreq = 0;
+
 bool isSplitOn = false;
 byte cwDelayTime = 60;
 byte delayBeforeCWStartTime = 50;
@@ -204,6 +218,7 @@ byte sideToneSub = 0;
 
 //DialLock
 byte isDialLock = 0;
+byte isTxOff = 0;
 
 
 /**
@@ -324,8 +339,11 @@ void setFrequency(unsigned long f){
  */
  
 void startTx(byte txMode, byte isDisplayUpdate){
-  unsigned long tx_freq = 0;  
-  digitalWrite(TX_RX, 1);
+  unsigned long tx_freq = 0;
+
+  if (isTxOff != 1)
+    digitalWrite(TX_RX, 1);
+    
   inTx = 1;
   
   if (ritOn){
@@ -448,6 +466,7 @@ void doTuning(){
     return;
 
   s = enc_read();
+
   if (s){
     prev_freq = frequency;
     
@@ -511,6 +530,39 @@ void doRIT(){
 }
 
 /**
+ save Frequency and mode to eeprom
+ */
+void storeFrequencyAndMode(byte saveType)
+{
+  //freqType : 0 Both (vfoA and vfoB), 1 : vfoA, 2 : vfoB
+  if (saveType == 0 || saveType == 1) //vfoA
+  {
+      if (vfoA != vfoA_eeprom) {
+        EEPROM.put(VFO_A, vfoA);
+        vfoA_eeprom = vfoA;
+      }
+      
+      if (vfoA_mode != vfoA_mode_eeprom) {
+        EEPROM.put(VFO_A_MODE, vfoA_mode);
+        vfoA_mode_eeprom = vfoA_mode;
+      }
+  }
+  
+  if (saveType == 0 || saveType == 2) //vfoB
+  {
+      if (vfoB != vfoB_eeprom) {
+        EEPROM.put(VFO_B, vfoB);
+        vfoB_eeprom = vfoB;
+      }
+      
+      if (vfoB_mode != vfoB_mode_eeprom) {
+          EEPROM.put(VFO_B_MODE, vfoB_mode);
+          vfoB_mode_eeprom = vfoB_mode;
+      }
+  }
+}
+
+/**
  * The settings are read from EEPROM. The first time around, the values may not be 
  * present or out of range, in this case, some intelligent defaults are copied into the 
  * variables.
@@ -557,7 +609,13 @@ void initSettings(){
      vfoB = 14150000l;  
      vfoB_mode = 3;
   }
-  
+
+  //for protect eeprom life
+  vfoA_eeprom = vfoA;
+  vfoB_eeprom = vfoB;
+  vfoA_mode_eeprom = vfoA_mode;
+  vfoB_mode_eeprom = vfoB_mode;
+
   if (sideTone < 100 || 2000 < sideTone) 
     sideTone = 800;
   if (cwSpeed < 10 || 1000 < cwSpeed) 
@@ -618,8 +676,11 @@ void setup()
 
   //we print this line so this shows up even if the raduino 
   //crashes later in the code
-  printLine2("CEC Ver 0.22"); 
-  printLine1("uBITX v0.20"); 
+  //printLine2("CEC V v0.24"); 
+
+  printLineF(0, F("CEC V v0.24")); 
+  printLineF(0, F("CEC V v0.24")); 
+  printLineF(1, F("uBITX v0.20")); 
   delay_background(500, 0);
   printLine2(""); 
 
@@ -630,12 +691,60 @@ void setup()
   initOscillators();
 
   frequency = vfoA;
+  saveCheckFreq = frequency;  //for auto save frequency
   byteToMode(vfoA_mode);
   setFrequency(vfoA);
   updateDisplay();
 
   if (btnDown())
     factory_alignment();
+
+/*
+   //This is for auto key test
+  EEPROM.put(CW_AUTO_MAGIC_KEY, 0x73);        //MAGIC KEY
+  EEPROM.put(CW_AUTO_COUNT, 3);               //WORD COUNT
+  EEPROM.put(CW_AUTO_DATA + 0, 6);        // 0 word begin postion / CQCQ TEST K
+  EEPROM.put(CW_AUTO_DATA + 1, 21);       // 0 word end postion / CQCQ TEST K
+  EEPROM.put(CW_AUTO_DATA + 2, 22);       //1 word begin position / LOL LOL
+  EEPROM.put(CW_AUTO_DATA + 3, 28);       //1 word end position / LOL LOL
+  EEPROM.put(CW_AUTO_DATA + 4, 29);       //2 word begin position / /?![]789
+  EEPROM.put(CW_AUTO_DATA + 5, 36);       //2 word end position / /?![]789
+  
+  EEPROM.put(CW_AUTO_DATA + 6, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 7, 'Q');      //
+  EEPROM.put(CW_AUTO_DATA + 8, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 9, 'Q');      //
+  EEPROM.put(CW_AUTO_DATA + 10, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 11, 'D');      //
+  EEPROM.put(CW_AUTO_DATA + 12, 'E');      //
+  EEPROM.put(CW_AUTO_DATA + 13, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 14, 'K');      //
+  EEPROM.put(CW_AUTO_DATA + 15, 'D');      //
+  EEPROM.put(CW_AUTO_DATA + 16, '8');      //
+  EEPROM.put(CW_AUTO_DATA + 17, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 18, 'E');      //
+  EEPROM.put(CW_AUTO_DATA + 19, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 20, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 21, 'K');      //
+
+  EEPROM.put(CW_AUTO_DATA + 22, 'H');      //
+  EEPROM.put(CW_AUTO_DATA + 23, 'I');      //
+  EEPROM.put(CW_AUTO_DATA + 24, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 25, 'H');      //
+  EEPROM.put(CW_AUTO_DATA + 26, 'A');      //
+  EEPROM.put(CW_AUTO_DATA + 27, 'M');      //
+  EEPROM.put(CW_AUTO_DATA + 28, '!');      //
+
+  EEPROM.put(CW_AUTO_DATA + 29, '/');      //
+  EEPROM.put(CW_AUTO_DATA + 30, '?');      //
+  EEPROM.put(CW_AUTO_DATA + 31, '!');      //
+  EEPROM.put(CW_AUTO_DATA + 32, '"');      // start "
+  EEPROM.put(CW_AUTO_DATA + 33, '\'');      // end "
+  EEPROM.put(CW_AUTO_DATA + 34, '7');      //
+  EEPROM.put(CW_AUTO_DATA + 35, '8');      //
+  EEPROM.put(CW_AUTO_DATA + 36, '9');      //
+*/
+  
 }
 
 
@@ -645,8 +754,41 @@ void setup()
 //for debug
 int dbgCnt = 0;
 byte flasher = 0;
+
+void checkAutoSaveFreqMode()
+{
+  //when tx or ritOn, disable auto save
+  if (inTx || ritOn)
+    return;
+
+  //detect change frequency
+  if (saveCheckFreq != frequency)
+  {
+    saveCheckTime = millis();
+    saveCheckFreq = frequency;
+  }
+  else if (saveCheckTime != 0)
+  {
+    //check time for Frequency auto save
+    if (millis() - saveCheckTime > saveIntervalSec * 1000)
+    {
+      if (vfoActive == VFO_A)
+      {
+        vfoA = frequency;
+        vfoA_mode = modeToByte();
+        storeFrequencyAndMode(1);
+      }
+      else
+      {
+        vfoB = frequency;
+        vfoB_mode = modeToByte();
+        storeFrequencyAndMode(2);
+      }
+    }
+  }
+}
+
 void loop(){ 
-  
   cwKeyer(); 
   if (!txCAT)
     checkPTT();
@@ -659,13 +801,10 @@ void loop(){
     else 
       doTuning();
   }
-  
+
   //we check CAT after the encoder as it might put the radio into TX
   //checkCAT();
   Check_Cat(inTx? 1 : 0);
 
-  /*
-  lcd.setCursor(0, 0);             // place the cursor at the beginning of the selected line
-  lcd.print(dbgCnt++);
-  */
+  checkAutoSaveFreqMode();
 }
