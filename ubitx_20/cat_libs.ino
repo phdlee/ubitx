@@ -34,7 +34,7 @@
 #define printLineF2(x) (printLineF(0, x))
 
 //for broken protocol
-#define MAX_PROTOCOL_SKIP_COUNT 200
+#define CAT_RECEIVE_TIMEOUT 500
 
 #define CAT_MODE_LSB            0x00
 #define CAT_MODE_USB            0x01
@@ -156,7 +156,14 @@ void CatSetPTT(boolean isPTTOn, byte fromType)
     if (!inTx)
     {
       txCAT = true;
+
       startTx(TX_SSB, 1);
+      //Exit menu, Memory Keyer... ETC
+      if (isCWAutoMode > 0) {
+        isCWAutoMode = 0;
+        printLineF2(F("AutoKey Exit/CAT"));
+        //delay_background(1000, 0);
+      }
     }
   }
   else
@@ -206,8 +213,51 @@ void CatSetMode(byte tmpMode, byte fromType)
   Serial.write(ACK);
 }
 
-
+//Read EEProm by uBITX Manager Software
 void ReadEEPRom(byte fromType)
+{
+  //5BYTES
+  //CAT_BUFF[0] [1] [2] [3] [4] //4 COMMAND
+  //0, 1 START ADDRESS
+  uint16_t eepromStartIndex = CAT_BUFF[0] + CAT_BUFF[1] * 256;
+  uint16_t eepromReadLength = CAT_BUFF[2] + CAT_BUFF[3] * 256;;
+  byte checkSum = 0;
+  byte read1Byte = 0;
+
+  Serial.write(0x02); //STX
+  checkSum = 0x02;
+  for (uint16_t i = 0; i < eepromReadLength; i++)
+  {
+    read1Byte = EEPROM.read(eepromStartIndex + i);
+    checkSum += read1Byte;
+    Serial.write(read1Byte);
+  }
+  Serial.write(checkSum);
+  Serial.write(ACK);
+}
+
+//Write just proecess 1byes
+void WriteEEPRom(byte fromType)
+{
+  //5BYTES
+  uint16_t eepromStartIndex = CAT_BUFF[0] + CAT_BUFF[1] * 256;
+  byte write1Byte = CAT_BUFF[2];
+
+  //Check Checksum
+  if (CAT_BUFF[3] != ((CAT_BUFF[0] + CAT_BUFF[1] + CAT_BUFF[2]) % 256))
+  {
+    Serial.write(0x56); //CHECK SUM ERROR
+    Serial.write(ACK);
+  }
+  else
+  {
+    EEPROM.write(eepromStartIndex, write1Byte);
+    Serial.write(0x77); //OK  
+    Serial.write(ACK);
+  }
+}
+
+void ReadEEPRom_FT817(byte fromType)
 {
   byte temp0 = CAT_BUFF[0];
   byte temp1 = CAT_BUFF[1];
@@ -346,7 +396,7 @@ void ReadEEPRom(byte fromType)
   SendCatData(2);
 }
 
-void WriteEEPRom(byte fromType)
+void WriteEEPRom_FT817(byte fromType)
 {
   byte temp0 = CAT_BUFF[0];
   byte temp1 = CAT_BUFF[1];
@@ -558,12 +608,13 @@ void CatTxStatus(byte fromType)
   SendCatData(1);
 }
 
-unsigned int skiptimeCount = 0;
+unsigned long rxBufferArriveTime = 0;
+byte rxBufferCheckCount = 0;
 
 //Prevent Stack Overflow
 byte isProcessCheck_Cat = 0;
 
-//fromType normal : 0, TX : 1, CW_STRAIGHT : 2, CW_PADDLE : 3
+//fromType normal : 0, TX : 1, CW_STRAIGHT : 2, CW_PADDLE : 3, CW_AUTOMODE : 4
 //if cw mode, no delay
 void Check_Cat(byte fromType)
 {
@@ -572,23 +623,31 @@ void Check_Cat(byte fromType)
   //Check Serial Port Buffer
   if (Serial.available() == 0) 
   {
-    skipTimeCount = 0;  //Init skipTimeCount for broken protocol
+    //Set Buffer Clear status
+    rxBufferCheckCount = 0;
     return;
   }
   else if (Serial.available() < 5)
   {
-    /*
-    //if Broken Protocol, Reset Buffer
-    //when TX mode very fast count because stkip dial check, button check functions
-    if ((fromType == 0 && ++skiptimeCount > MAX_PROTOCOL_SKIP_COUNT) ||
-        ((fromType == 1 || 2) && ++skiptimeCount > MAX_PROTOCOL_SKIP_COUNT * 70) )  
+    //First Arrived
+    if (rxBufferCheckCount == 0)
+    {
+      rxBufferCheckCount = Serial.available();
+      rxBufferArriveTime = millis() + CAT_RECEIVE_TIMEOUT;  //Set time for timeout
+    }
+    else if (rxBufferArriveTime < millis()) //timeout
     {
       //Clear Buffer
       for (i = 0; i < Serial.available(); i++)
-        CAT_BUFF[0] = Serial.read();
-      skipTimeCount = 0;  //Init skipTimeCount for broken protocol
+        rxBufferCheckCount = Serial.read();
+
+       rxBufferCheckCount = 0;
     }
-    */
+    else if (rxBufferCheckCount < Serial.available()) //increase buffer count, slow arrived
+    {
+      rxBufferCheckCount = Serial.available();
+      rxBufferArriveTime = millis() + CAT_RECEIVE_TIMEOUT;  //Set time for timeout
+    }
     
     return;
   }
@@ -655,13 +714,17 @@ void Check_Cat(byte fromType)
       break;
 
     case 0xDB:  //Read uBITX EEPROM Data
+      ReadEEPRom(fromType); //Call by uBITX Manager Program
+      break;
     case 0xBB:  //Read FT-817 EEPROM Data  (for comfirtable)
-      ReadEEPRom(fromType);
+      ReadEEPRom_FT817(fromType);
       break;
 
     case 0xDC:  //Write uBITX EEPROM Data
+      WriteEEPRom(fromType); //Call by uBITX Manager Program
+      break;
     case 0xBC:  //Write FT-817 EEPROM Data  (for comfirtable)
-      WriteEEPRom(fromType);
+      WriteEEPRom_FT817(fromType);
       break;
 
     case 0xE7 :       //Read RX Status

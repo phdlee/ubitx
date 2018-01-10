@@ -96,6 +96,8 @@
 #include <LiquidCrystal.h>
 LiquidCrystal lcd(8,9,10,11,12,13);
 
+#define VERSION_NUM 0x01  //for KD8CEC'S firmware and for memory management software
+
 /**
  * The Arduino, unlike C/C++ on a regular computer with gigabytes of RAM, has very little memory.
  * We have to be very careful with variables that are declared inside the functions as they are 
@@ -147,11 +149,20 @@ int count = 0;          //to generally count ticks, loops, etc
 #define CW_DELAY 258
 #define CW_START 259
 
+//
+#define VERSION_ADDRESS 779   //check Firmware version
+//USER INFORMATION
+#define USER_CALLSIGN_KEY 780   //0x59
+#define USER_CALLSIGN_LEN 781   //1BYTE (OPTION + LENGTH) + CALLSIGN (MAXIMUM 18)
+#define USER_CALLSIGN_DAT 782   //CALL SIGN DATA  //direct EEPROM to LCD basic offset
+
 //AUTO KEY STRUCTURE
+//AUTO KEY USE 800 ~ 1023
 #define CW_AUTO_MAGIC_KEY 800   //0x73
 #define CW_AUTO_COUNT     801   //0 ~ 255
-#define CW_AUTO_DATA  803   //
-
+#define CW_AUTO_DATA      803   //[INDEX, INDEX, INDEX,DATA,DATA, DATA (Positon offset is CW_AUTO_DATA
+#define CW_DATA_OFSTADJ   CW_AUTO_DATA - USER_CALLSIGN_DAT   //offset adjust for ditect eeprom to lcd (basic offset is USER_CALLSIGN_DAT
+#define CW_STATION_LEN    1023  //value range : 4 ~ 30
 /**
  * The uBITX is an upconnversion transceiver. The first IF is at 45 MHz.
  * The first IF frequency is not exactly at 45 Mhz but about 5 khz lower,
@@ -220,6 +231,18 @@ byte sideToneSub = 0;
 byte isDialLock = 0;
 byte isTxOff = 0;
 
+//Variables for auto cw mode
+byte isCWAutoMode = 0;          //0 : none, 1 : CW_AutoMode_Menu_Selection, 2 : CW_AutoMode Sending
+byte cwAutoTextCount = 0;       //cwAutoText Count
+byte beforeCWTextIndex = 255;   //when auto cw start, always beforeCWTextIndex = 255, (for first time check)
+byte cwAutoDialType = 0;        //0 : CW Text Change, 1 : Frequency Tune
+
+#define AUTO_CW_RESERVE_MAX 3
+byte autoCWSendReserv[AUTO_CW_RESERVE_MAX]; //Reserve CW Auto Send
+byte autoCWSendReservCount = 0;             //Reserve CW Text Cound
+byte sendingCWTextIndex = 0;                //cw auto seding Text Index
+
+byte userCallsignLength = 0;    //7 : display callsign at system startup, 6~0 : callsign length (range : 1~18)
 
 /**
  * Raduino needs to keep track of current state of the transceiver. These are a few variables that do it
@@ -249,13 +272,30 @@ boolean modeCalibrate = false;//this mode of menus shows extended menus to calib
  */
  
 unsigned long delayBeforeTime = 0;
-void delay_background(unsigned delayTime, byte fromType){
+byte delay_background(unsigned delayTime, byte fromType){ //fromType : 4 autoCWKey -> Check Paddle
   delayBeforeTime = millis();
 
   while (millis() <= delayBeforeTime + delayTime) {
-    //Background Work
-    Check_Cat(fromType);
+
+    if (fromType == 4)
+    {
+      //CHECK PADDLE
+      if (getPaddle() != 0) //Interrupt : Stop cw Auto mode by Paddle -> Change Auto to Manual
+        return 1;
+        
+      //Check PTT while auto Sending
+      autoSendPTTCheck();
+      
+      Check_Cat(3);
+    }
+    else
+    {
+      //Background Work      
+      Check_Cat(fromType);
+    }
   }
+
+  return 0;
 }
  
 
@@ -316,7 +356,7 @@ void setFrequency(unsigned long f){
   uint64_t osc_f;
 
   //1 digits discarded
-  f = (f / 10) * 10;
+  f = (f / 50) * 50;
   
   setTXFilters(f);
 
@@ -458,14 +498,15 @@ void checkButton(){
  */
 
 void doTuning(){
-  int s;
+  int s = 0;
   unsigned long prev_freq;
   int incdecValue = 0;
 
   if (isDialLock == 1)
     return;
 
-  s = enc_read();
+  if (isCWAutoMode == 0 || cwAutoDialType == 1)
+    s = enc_read();
 
   if (s){
     prev_freq = frequency;
@@ -587,6 +628,14 @@ void initSettings(){
 
   //CW interval between TX and CW Start
   EEPROM.get(CW_START, delayBeforeCWStartTime);
+
+  //User callsign information
+  if (EEPROM.read(USER_CALLSIGN_KEY) == 0x59)
+    userCallsignLength = EEPROM.read(USER_CALLSIGN_LEN);  //MAXIMUM 18 LENGTH
+
+  //Version Write for Memory Management Software
+  if (EEPROM.read(VERSION_ADDRESS) != VERSION_NUM)
+    EEPROM.write(VERSION_ADDRESS, VERSION_NUM);
   
   if (cwDelayTime < 1 || cwDelayTime > 250)
     cwDelayTime = 60;
@@ -598,7 +647,7 @@ void initSettings(){
     vfoB_mode = 3;
 
   if (usbCarrier > 12010000l || usbCarrier < 11990000l)
-    usbCarrier = 11997000l;
+    usbCarrier = 11995000l;
     
   if (vfoA > 35000000l || 3500000l > vfoA) {
      vfoA = 7150000l;
@@ -666,27 +715,31 @@ void initPorts(){
 
 void setup()
 {
-  //Init EEProm for factory reset test
+  //Init EEProm for Fault EEProm TEST and Factory Reset
   /*
-  for (int i = 0; i < 512; i++)
+  for (int i = 0; i < 1024; i++)
     EEPROM.write(i, 0);
   */
   //Serial.begin(9600);
   lcd.begin(16, 2);
 
-  //we print this line so this shows up even if the raduino 
-  //crashes later in the code
-  //printLine2("CEC V v0.24"); 
-
-  printLineF(0, F("CEC V v0.24")); 
-  printLineF(0, F("CEC V v0.24")); 
-  printLineF(1, F("uBITX v0.20")); 
-  delay_background(500, 0);
-  printLine2(""); 
-
   Init_Cat(38400, SERIAL_8N1);
   initMeter(); //not used in this build
   initSettings();
+
+  printLineF(1, F("CECBT v0.25")); 
+  if (userCallsignLength > 0 && ((userCallsignLength & 0x80) == 0x80))
+  {
+    userCallsignLength = userCallsignLength & 0x7F;
+    printLineFromEEPRom(0, 0, 0, userCallsignLength -1); //eeprom to lcd use offset (USER_CALLSIGN_DAT)
+  }
+  else
+  {
+    printLineF(0, F("uBITX v0.20")); 
+    delay_background(500, 0);
+    printLine2(""); 
+  }
+  
   initPorts();     
   initOscillators();
 
@@ -704,11 +757,11 @@ void setup()
   EEPROM.put(CW_AUTO_MAGIC_KEY, 0x73);        //MAGIC KEY
   EEPROM.put(CW_AUTO_COUNT, 3);               //WORD COUNT
   EEPROM.put(CW_AUTO_DATA + 0, 6);        // 0 word begin postion / CQCQ TEST K
-  EEPROM.put(CW_AUTO_DATA + 1, 21);       // 0 word end postion / CQCQ TEST K
-  EEPROM.put(CW_AUTO_DATA + 2, 22);       //1 word begin position / LOL LOL
-  EEPROM.put(CW_AUTO_DATA + 3, 28);       //1 word end position / LOL LOL
-  EEPROM.put(CW_AUTO_DATA + 4, 29);       //2 word begin position / /?![]789
-  EEPROM.put(CW_AUTO_DATA + 5, 36);       //2 word end position / /?![]789
+  EEPROM.put(CW_AUTO_DATA + 1, 33);       // 0 word end postion / CQCQ TEST K
+  EEPROM.put(CW_AUTO_DATA + 2, 34);       //1 word begin position / LOL LOL
+  EEPROM.put(CW_AUTO_DATA + 3, 40);       //1 word end position / LOL LOL
+  EEPROM.put(CW_AUTO_DATA + 4, 41);       //2 word begin position / /?![]789
+  EEPROM.put(CW_AUTO_DATA + 5, 48);       //2 word end position / /?![]789
   
   EEPROM.put(CW_AUTO_DATA + 6, 'C');      //
   EEPROM.put(CW_AUTO_DATA + 7, 'Q');      //
@@ -725,24 +778,66 @@ void setup()
   EEPROM.put(CW_AUTO_DATA + 18, 'E');      //
   EEPROM.put(CW_AUTO_DATA + 19, 'C');      //
   EEPROM.put(CW_AUTO_DATA + 20, ' ');      //
-  EEPROM.put(CW_AUTO_DATA + 21, 'K');      //
+  EEPROM.put(CW_AUTO_DATA + 21, 'E');      //
+  EEPROM.put(CW_AUTO_DATA + 22, 'M');      //
+  EEPROM.put(CW_AUTO_DATA + 23, '3');      //
+  EEPROM.put(CW_AUTO_DATA + 24, '7');      //
+  EEPROM.put(CW_AUTO_DATA + 25, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 26, 'D');      //
+  EEPROM.put(CW_AUTO_DATA + 27, 'E');      //
+  EEPROM.put(CW_AUTO_DATA + 28, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 29, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 30, 'E');      //
+  EEPROM.put(CW_AUTO_DATA + 31, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 32, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 33, 'K');      //
+*/
 
-  EEPROM.put(CW_AUTO_DATA + 22, 'H');      //
-  EEPROM.put(CW_AUTO_DATA + 23, 'I');      //
-  EEPROM.put(CW_AUTO_DATA + 24, ' ');      //
-  EEPROM.put(CW_AUTO_DATA + 25, 'H');      //
-  EEPROM.put(CW_AUTO_DATA + 26, 'A');      //
-  EEPROM.put(CW_AUTO_DATA + 27, 'M');      //
-  EEPROM.put(CW_AUTO_DATA + 28, '!');      //
+/*
+  EEPROM.put(CW_AUTO_DATA + 34, '<');      //
+  EEPROM.put(CW_AUTO_DATA + 35, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 36, '>');      //
+  EEPROM.put(CW_AUTO_DATA + 37, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 38, '7');      //
+  EEPROM.put(CW_AUTO_DATA + 39, '3');      //
+  EEPROM.put(CW_AUTO_DATA + 40, 'K');      //
 
-  EEPROM.put(CW_AUTO_DATA + 29, '/');      //
-  EEPROM.put(CW_AUTO_DATA + 30, '?');      //
-  EEPROM.put(CW_AUTO_DATA + 31, '!');      //
-  EEPROM.put(CW_AUTO_DATA + 32, '"');      // start "
-  EEPROM.put(CW_AUTO_DATA + 33, '\'');      // end "
-  EEPROM.put(CW_AUTO_DATA + 34, '7');      //
-  EEPROM.put(CW_AUTO_DATA + 35, '8');      //
-  EEPROM.put(CW_AUTO_DATA + 36, '9');      //
+  EEPROM.put(CW_AUTO_DATA + 41, 'C');      //
+  EEPROM.put(CW_AUTO_DATA + 42, 'Q');      //
+  EEPROM.put(CW_AUTO_DATA + 43, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 44, '>');      // start "
+  EEPROM.put(CW_AUTO_DATA + 45, ' ');      // end "
+  EEPROM.put(CW_AUTO_DATA + 46, '>');      //
+  EEPROM.put(CW_AUTO_DATA + 47, ' ');      //
+  EEPROM.put(CW_AUTO_DATA + 48, 'K');      //
+*/
+
+/*
+  //This is for auto key test2
+  //USER CALL SIGN
+  EEPROM.put(USER_CALLSIGN_KEY, 0x59);     //MAGIC KEY
+  //EEPROM.put(USER_CALLSIGN_LEN, 10);           //WORD COUNT
+  EEPROM.put(USER_CALLSIGN_LEN, 10 + 0x80);           //WORD COUNT
+  
+  EEPROM.put(USER_CALLSIGN_DAT + 1, 'K');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 2, 'D');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 3, '8');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 4, 'C');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 5, 'E');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 6, 'C');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 7, '/');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 8, 'A');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 9, 'B');      //
+  EEPROM.put(USER_CALLSIGN_DAT + 10, 'C');      //
+
+  //CW QSO CALLSIGN
+  EEPROM.put(CW_STATION_LEN, 6);                //
+  EEPROM.put(CW_STATION_LEN - 6 + 0 , 'A');     //
+  EEPROM.put(CW_STATION_LEN - 6 + 1 , 'B');     //
+  EEPROM.put(CW_STATION_LEN - 6 + 2 , '1');     //
+  EEPROM.put(CW_STATION_LEN - 6 + 3 , 'C');     //
+  EEPROM.put(CW_STATION_LEN - 6 + 4 , 'D');     //
+  EEPROM.put(CW_STATION_LEN - 6 + 5 , 'E');     // 
 */
   
 }
@@ -789,11 +884,16 @@ void checkAutoSaveFreqMode()
 }
 
 void loop(){ 
-  cwKeyer(); 
-  if (!txCAT)
-    checkPTT();
-  checkButton();
+  if (isCWAutoMode == 0){  //when CW AutoKey Mode, disable this process
+    if (!txCAT)
+      checkPTT();
+    checkButton();
+  }
+ else
+    controlAutoCW();
 
+  cwKeyer(); 
+  
   //tune only when not tranmsitting 
   if (!inTx){
     if (ritOn)
@@ -803,8 +903,6 @@ void loop(){
   }
 
   //we check CAT after the encoder as it might put the radio into TX
-  //checkCAT();
   Check_Cat(inTx? 1 : 0);
-
   checkAutoSaveFreqMode();
 }

@@ -98,6 +98,10 @@ void cwKeyer(){
     // do nothing if the paddle has not been touched, unless
     // we are in the cw mode and we have timed out
     if (!paddle){
+       //modifed by KD8CEC for auto CW Send
+      if (isCWAutoMode > 1)  //if while auto cw sending, dont stop tx by paddle position
+        return;
+        
       if (0 < cwTimeout && cwTimeout < millis()){
         cwTimeout = 0;
         keyDown = 0;
@@ -120,6 +124,11 @@ void cwKeyer(){
       */
       continue;
     }
+
+    //if while auto cw send, stop auto cw
+    //but isAutoCWHold for Manual Keying with cwAutoSend
+    if (isCWAutoMode > 1 && isAutoCWHold == 0)
+      isCWAutoMode = 1;                         //read status
 
     //Remoark Debug code / Serial Use by CAT Protocol
     //Serial.print("paddle:");Serial.println(paddle);

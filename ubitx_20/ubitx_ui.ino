@@ -143,35 +143,21 @@ void printLineF(char linenmbr, const __FlashStringHelper *c)
   printLine(linenmbr, tmpBuff);
 }
 
+#define LCD_MAX_COLUMN 16
+void printLineFromEEPRom(char linenmbr, char lcdColumn, byte eepromStartIndex, byte eepromEndIndex) {
+  lcd.setCursor(lcdColumn, linenmbr);
 
-//#define printLineF1(x) (printLineF(1, x))
-//#define printLineF2(x) (printLineF(0, x))
-
-/*
-//for reduce use memory
-void printLineF(char linenmbr, const __FlashStringHelper *c) {
-  byte i;
-  byte sameData = 0;
-
-  for (i = 0;i < strlen
-  
-  if (strcmp((char *)c, printBuff[linenmbr])) {     // only refresh the display when there was a change
-    lcd.setCursor(0, linenmbr);             // place the cursor at the beginning of the selected line
-    lcd.print(c);
-    strcpy(printBuff[linenmbr], c);
-
-    for (byte i = strlen((char *)c); i < 16; i++) { // add white spaces until the end of the 16 characters line is reached
-      lcd.print(' ');
-    }
-  }
-  else
+  for (byte i = eepromStartIndex; i <= eepromEndIndex; i++)
   {
-    lcd.setCursor(0, linenmbr);             // place the cursor at the beginning of the selected line
-    lcd.print("Exists");
+    if (++lcdColumn <= LCD_MAX_COLUMN)
+      lcd.write(EEPROM.read(USER_CALLSIGN_DAT + i));
+    else
+      break;
   }
+  
+  for (byte i = lcdColumn; i < 16; i++) //Right Padding by Space
+      lcd.write(' ');
 }
-*/
-
 
 //  short cut to print to the first line
 void printLine1(char *c){
@@ -196,6 +182,14 @@ void printLine2ClearAndUpdate(){
   updateDisplay();
 }
 
+//012...89ABC...Z
+char byteToChar(byte srcByte){
+  if (srcByte < 10)
+    return 0x30 + srcByte;
+ else
+    return 'A' + srcByte - 10;
+}
+
 // this builds up the top line of the display with frequency and mode
 void updateDisplay() {
   // tks Jack Purdum W8TEE
@@ -208,10 +202,20 @@ void updateDisplay() {
   memset(c, 0, sizeof(c));
 
   if (inTx){
-    if (cwTimeout > 0)
-      strcpy(c, "   CW:");
-    else
-      strcpy(c, "   TX:");
+    if (isCWAutoMode == 2) {
+      for (i = 0; i < 4; i++)
+        c[3-i] = (i < autoCWSendReservCount ? byteToChar(autoCWSendReserv[i]) : ' ');
+
+      //display Sending Index
+      c[4] = byteToChar(sendingCWTextIndex);
+      c[5] = '=';
+    }
+    else {
+      if (cwTimeout > 0)
+        strcpy(c, "   CW:");
+      else
+        strcpy(c, "   TX:");
+    }
   }
   else {
     if (ritOn)
@@ -241,14 +245,19 @@ void updateDisplay() {
       c[i] = ' ';
   }
 
-  if (inTx)
-    strcat(c, " TX");
+  //remarked by KD8CEC
+  //already RX/TX status display, and over index (16 x 2 LCD)
+  //if (inTx)
+  //  strcat(c, " TX");
   printLine(1, c);
 
-  if (isDialLock == 1)
-  {
+  if (isDialLock == 1) {
     lcd.setCursor(5,1);
     lcd.write((uint8_t)0);
+  }
+  else if (isCWAutoMode == 2){
+    lcd.setCursor(5,1);
+    lcd.write(0x7E);
   }
   else
   {
