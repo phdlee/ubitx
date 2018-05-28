@@ -2,11 +2,11 @@
 This source code started with Farhan's original source. The license rules are followed as well.
 Calibration related functions kept the original source except for the minor ones. 
 The part is collected in the last minute of this source.
-
 Ian KD8CEC
  */
  
 #include "ubitx.h"
+#include "ubitx_eemap.h"
 
 //Current Frequency and mode to active VFO by KD8CEC
 void FrequencyToVFO(byte isSaveFreq)
@@ -59,12 +59,10 @@ void menuBand(int btn){
       btnPressCount = 0;
       if (tuneTXType > 0) { //Just toggle 0 <-> 2, if tuneTXType is 100, 100 -> 0 -> 2
         tuneTXType = 0;
-        //printLineF2(F("General mode"));
         printLineF2(F("General"));
       }
       else {
         tuneTXType = 2;
-        //printLineF2(F("Ham band mode"));
         printLineF2(F("Ham band"));
       }
       delay_background(1000, 0);
@@ -405,15 +403,15 @@ void menuSplitOnOff(int btn){
   else {
       if (splitOn == 1){
         splitOn = 0;
-        //printLineF2(F("Split Off!"));
-        printLineF2(F("[OFF]"));
+        printLineF2(F("SPT Off"));
+        //printLineF2(F("[OFF]"));
       }
       else {
         splitOn = 1;
         if (ritOn == 1)
           ritOn = 0;
-        //printLineF2(F("Split On!"));
-        printLineF2(F("[ON]"));
+        printLineF2(F("SPT On"));
+        //printLineF2(F("[ON]"));
       }
       
     menuClearExit(500);
@@ -432,11 +430,11 @@ void menuTxOnOff(int btn, byte optionType){
   else {
       if ((isTxType & optionType) == 0){
         isTxType |= optionType;
-        printLineF2(F("TX OFF!"));
+        printLineF2(F("TX OFF"));
       }
       else {
         isTxType &= ~(optionType);
-        printLineF2(F("TX ON!"));
+        printLineF2(F("TX ON"));
       }
       
     menuClearExit(500);
@@ -455,7 +453,7 @@ void menuSDROnOff(int btn)
   else {
       if (sdrModeOn == 1){
         sdrModeOn = 0;
-        printLineF2(F("[OFF]"));
+        printLineF2(F("SPK MODE"));
       }
       else {
         sdrModeOn = 1;
@@ -466,11 +464,12 @@ void menuSDROnOff(int btn)
         if (splitOn == 1)
           splitOn = 0;
           
-        printLineF2(F("[ON]"));
+        printLineF2(F("SDR MODE"));
       }
 
     EEPROM.put(ENABLE_SDR, sdrModeOn);
     setFrequency(frequency);
+    SetCarrierFreq();
     menuClearExit(500);
   }
 }
@@ -589,7 +588,6 @@ int getValueByKnob(int valueType, int targetValue, int minKnobValue, int maxKnob
 {
     int knob;
     int moveDetectStep = 0;
-    int negativeSensitivity;
     char isInitDisplay = 1;
     delay_background(300, 0); //Default Delay
 
@@ -679,7 +677,6 @@ int getValueByKnob(int valueType, int targetValue, int minKnobValue, int maxKnob
 }
 
 void menuCWSpeed(int btn){
-    int knob = 0;
     int wpm;
 
     wpm = 1200/cwSpeed;
@@ -732,15 +729,14 @@ void menuCWSpeed(int btn){
 
 //Modified by KD8CEC
 void menuSetupCwTone(int btn){
-    int knob = 0;
-    int prev_sideTone;
+    //int prev_sideTone;
      
     if (!btn){
       printLineF2(F("Change CW Tone"));
       return;
     }
 
-    prev_sideTone = sideTone;
+    //prev_sideTone = sideTone;
     //printLineF1(F("Tune CW tone"));
     //printLineF2(F("PTT to confirm."));
     //printLineF1(F("Press to set WPM"));
@@ -789,7 +785,7 @@ void menuSetupCwTone(int btn){
 
 //Modified by KD8CEC
 void menuSetupCwDelay(int btn){
-    int knob = 0;
+    //int knob = 0;
     int tmpCWDelay = cwDelayTime * 10;
      
     if (!btn){
@@ -839,8 +835,8 @@ void menuSetupCwDelay(int btn){
 
 //CW Time delay by KD8CEC
 void menuSetupTXCWInterval(int btn){
-    char needDisplayInformation = 1;
-    int knob = 0;
+    //char needDisplayInformation = 1;
+    //int knob = 0;
     int tmpTXCWInterval = delayBeforeCWStartTime * 2;
      
     if (!btn){
@@ -892,8 +888,8 @@ void menuSetupTXCWInterval(int btn){
 
 //IF Shift function, BFO Change like RIT, by KD8CEC
 void menuIFSSetup(int btn){
-  int knob = 0;
-  char needApplyChangeValue = 1;
+  //int knob = 0;
+  //char needApplyChangeValue = 1;
   
   if (!btn){
     if (isIFShift == 1)
@@ -953,8 +949,8 @@ void menuIFSSetup(int btn){
 
 //ATT SETUP (IF1(45MHZ) SHIFT), by KD8CEC
 void menuATTSetup(int btn){
-  int knob = 0;
-  char needApplyChangeValue = 1;
+  //int knob = 0;
+  //char needApplyChangeValue = 1;
   
   if (!btn){
     if (attLevel != 0)
@@ -979,10 +975,10 @@ void menuATTSetup(int btn){
 
 //Functions for CWL and CWU by KD8CEC
 void menuSelectMode(int btn){
-  int knob = 0;
+  //int knob = 0;
   int selectModeType = 0;
   int beforeMode = 0;
-  int moveStep = 0;
+  //int moveStep = 0;
   
   if (!btn){
       printLineF2(F("Select Mode?"));
@@ -1064,9 +1060,9 @@ void menuSelectMode(int btn){
 
 //Select CW Key Type by KD8CEC
 void menuSetupKeyType(int btn){
-  int knob = 0;
+  //int knob = 0;
   int selectedKeyType = 0;
-  int moveStep = 0;
+  //int moveStep = 0;
   if (!btn){
         printLineF2(F("Change Key Type?"));
   }
@@ -1110,7 +1106,6 @@ void menuSetupKeyType(int btn){
     }
     */
     
-    
     printLineF2(F("CW Key Type set!"));
     cwKeyType = selectedKeyType;
     EEPROM.put(CW_KEY_TYPE, cwKeyType);
@@ -1131,7 +1126,7 @@ void menuSetupKeyType(int btn){
 }
 
 //=====================================================
-//END OF STANDARD Tune Setup for reduce Program Memory
+//END OF STANDARD Set by Knob for reduce Program Memory
 //=====================================================
  
 

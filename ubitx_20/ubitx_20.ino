@@ -1,24 +1,19 @@
 //Firmware Version
-#define FIRMWARE_VERSION_INFO F("CE v1.071")
-#define FIRMWARE_VERSION_NUM 0x02       //1st Complete Project : 1 (Version 1.061), 2st Project : 2
+//+ : This symbol identifies the firmware. 
+//    It was originally called 'CEC V1.072' but it is too long to waste the LCD window.
+//    I do not want to make this Firmware users's uBITX messy with my callsign.
+//    Putting one alphabet in front of 'v' has a different meaning.
+//    So I put + in the sense that it was improved one by one based on Original Firmware.
+//    This firmware has been gradually changed based on the original firmware created by Farhan, Jack, Jerry and others.
 
-//Depending on the type of LCD mounted on the uBITX, uncomment one of the options below.
-//You must select only one.
-
-#define UBITX_DISPLAY_LCD1602P      //LCD mounted on unmodified uBITX
-//#define UBITX_DISPLAY_LCD1602I    //I2C type 16 x 02 LCD
-//#define UBITX_DISPLAY_LCD2404P    //24 x 04 LCD
-//#define UBITX_DISPLAY_LCD2404I    //I2C type 24 x 04 LCD
-
-//Compile Option
-#define ENABLE_FACTORYALIGN
-#define ENABLE_ADCMONITOR //Starting with Version 1.07, you can read ADC values directly from uBITX Manager. So this function is not necessary.
-
+#define FIRMWARE_VERSION_INFO F("+v1.075")  
+#define FIRMWARE_VERSION_NUM 0x03       //1st Complete Project : 1 (Version 1.061), 2st Project : 2
 
 /**
  Cat Suppoort uBITX CEC Version
+ This firmware has been gradually changed based on the original firmware created by Farhan, Jack, Jerry and others.
  Most features(TX, Frequency Range, Ham Band, TX Control, CW delay, start Delay... more) have been added by KD8CEC.
- However, the license rules are subject to the original source rules.
+ My wish is to keep the original author's Comment as long as the meaning does not change much, even if the code looks a bit long.
  Ian KD8CEC
 
  Original source comment            -------------------------------------------------------------
@@ -56,161 +51,8 @@
 #include <Wire.h>
 #include <EEPROM.h>
 #include "ubitx.h"
+#include "ubitx_eemap.h"
 
-/**
-    The main chip which generates upto three oscillators of various frequencies in the
-    Raduino is the Si5351a. To learn more about Si5351a you can download the datasheet
-    from www.silabs.com although, strictly speaking it is not a requirment to understand this code.
-
-    We no longer use the standard SI5351 library because of its huge overhead due to many unused
-    features consuming a lot of program space. Instead of depending on an external library we now use
-    Jerry Gaffke's, KE7ER, lightweight standalone mimimalist "si5351bx" routines (see further down the
-    code). Here are some defines and declarations used by Jerry's routines:
-*/
-
-
-/**
- * We need to carefully pick assignment of pin for various purposes.
- * There are two sets of completely programmable pins on the Raduino.
- * First, on the top of the board, in line with the LCD connector is an 8-pin connector
- * that is largely meant for analog inputs and front-panel control. It has a regulated 5v output,
- * ground and six pins. Each of these six pins can be individually programmed 
- * either as an analog input, a digital input or a digital output. 
- * The pins are assigned as follows (left to right, display facing you): 
- *      Pin 1 (Violet), A7, SPARE
- *      Pin 2 (Blue),   A6, KEYER (DATA)
- *      Pin 3 (Green), +5v 
- *      Pin 4 (Yellow), Gnd
- *      Pin 5 (Orange), A3, PTT
- *      Pin 6 (Red),    A2, F BUTTON
- *      Pin 7 (Brown),  A1, ENC B
- *      Pin 8 (Black),  A0, ENC A
- *Note: A5, A4 are wired to the Si5351 as I2C interface 
- *       *     
- * Though, this can be assigned anyway, for this application of the Arduino, we will make the following
- * assignment
- * A2 will connect to the PTT line, which is the usually a part of the mic connector
- * A3 is connected to a push button that can momentarily ground this line. This will be used for RIT/Bandswitching, etc.
- * A6 is to implement a keyer, it is reserved and not yet implemented
- * A7 is connected to a center pin of good quality 100K or 10K linear potentiometer with the two other ends connected to
- * ground and +5v lines available on the connector. This implments the tuning mechanism
- */
-
-#define ENC_A (A0)
-#define ENC_B (A1)
-#define FBUTTON (A2)
-#define PTT   (A3)
-#define ANALOG_KEYER (A6)
-#define ANALOG_SPARE (A7)
-#define ANALOG_SMETER (A7)  //by KD8CEC
-
-/**
- * The Arduino, unlike C/C++ on a regular computer with gigabytes of RAM, has very little memory.
- * We have to be very careful with variables that are declared inside the functions as they are 
- * created in a memory region called the stack. The stack has just a few bytes of space on the Arduino
- * if you declare large strings inside functions, they can easily exceed the capacity of the stack
- * and mess up your programs. 
- * We circumvent this by declaring a few global buffers as  kitchen counters where we can 
- * slice and dice our strings. These strings are mostly used to control the display or handle
- * the input and output from the USB port. We must keep a count of the bytes used while reading
- * the serial port as we can easily run out of buffer space. This is done in the serial_in_count variable.
- */
-int count = 0;          //to generally count ticks, loops, etc
-
-/** 
- *  The second set of 16 pins on the Raduino's bottom connector are have the three clock outputs and the digital lines to control the rig.
- *  This assignment is as follows :
- *    Pin   1   2    3    4    5    6    7    8    9    10   11   12   13   14   15   16
- *         GND +5V CLK0  GND  GND  CLK1 GND  GND  CLK2  GND  D2   D3   D4   D5   D6   D7  
- *  These too are flexible with what you may do with them, for the Raduino, we use them to :
- *  - TX_RX line : Switches between Transmit and Receive after sensing the PTT or the morse keyer
- *  - CW_KEY line : turns on the carrier for CW
- */
-
-#define TX_RX (7)
-#define CW_TONE (6)
-#define TX_LPF_A (5)
-#define TX_LPF_B (4)
-#define TX_LPF_C (3)
-#define CW_KEY (2)
-
-/**
- * These are the indices where these user changable settinngs are stored  in the EEPROM
- */
-#define MASTER_CAL 0
-#define LSB_CAL 4
-#define USB_CAL 8
-#define SIDE_TONE 12
-//these are ids of the vfos as well as their offset into the eeprom storage, don't change these 'magic' values
-#define VFO_A 16
-#define VFO_B 20
-#define CW_SIDETONE 24
-#define CW_SPEED 28
-
-//KD8CEC EEPROM MAP
-#define ADVANCED_FREQ_OPTION1 240 //Bit0: use IFTune_Value, Bit1 : use Stored enabled SDR Mode, Bit2 : dynamic sdr frequency
-#define IF1_CAL               241
-#define ENABLE_SDR            242
-#define SDR_FREQUNCY          243
-
-#define CW_CAL 252
-#define VFO_A_MODE 256
-#define VFO_B_MODE 257
-#define CW_DELAY 258
-#define CW_START 259
-#define HAM_BAND_COUNT 260    //
-#define TX_TUNE_TYPE 261      //
-#define HAM_BAND_RANGE 262    //FROM (2BYTE) TO (2BYTE) * 10 = 40byte
-#define HAM_BAND_FREQS 302    //40, 1 BAND = 4Byte most bit is mode
-#define TUNING_STEP    342   //TUNING STEP * 6 (index 1 + STEPS 5)  //1STEP : 
-  
-
-//for reduce cw key error, eeprom address
-#define CW_ADC_MOST_BIT1 348   //most 2bits of  DOT_TO , DOT_FROM, ST_TO, ST_FROM
-#define CW_ADC_ST_FROM   349   //CW ADC Range STRAIGHT KEY from (Lower 8 bit)
-#define CW_ADC_ST_TO     350   //CW ADC Range STRAIGHT KEY to   (Lower 8 bit)
-#define CW_ADC_DOT_FROM  351   //CW ADC Range DOT  from         (Lower 8 bit)
-#define CW_ADC_DOT_TO    352   //CW ADC Range DOT  to           (Lower 8 bit)
-
-#define CW_ADC_MOST_BIT2 353   //most 2bits of BOTH_TO, BOTH_FROM, DASH_TO, DASH_FROM
-#define CW_ADC_DASH_FROM 354   //CW ADC Range DASH from         (Lower 8 bit)
-#define CW_ADC_DASH_TO   355   //CW ADC Range DASH to           (Lower 8 bit)
-#define CW_ADC_BOTH_FROM 356   //CW ADC Range BOTH from         (Lower 8 bit)
-#define CW_ADC_BOTH_TO   357   //CW ADC Range BOTH to           (Lower 8 bit)
-#define CW_KEY_TYPE      358
-#define CW_DISPLAY_SHIFT 359  //Transmits on CWL, CWU Mode, LCD Frequency shifts Sidetone Frequency. 
-                              //(7:Enable / Disable //0: enable, 1:disable, (default is applied shift)
-                              //6 : 0 : Adjust Pulus, 1 : Adjust Minus
-                              //0~5: Adjust Value : * 10 = Adjust Value (0~300)
-#define COMMON_OPTION0  360  //0: Confirm : CW Frequency Shift
-                              //1 : IF Shift Save
-                              //
-                              //
-                              //
-#define IF_SHIFTVALUE   363                                
-
-#define DISPLAY_OPTION1  361   //Display Option1
-#define DISPLAY_OPTION2  362   //Display Option2
-
-#define CHANNEL_FREQ    630   //Channel 1 ~ 20, 1 Channel = 4 bytes
-#define CHANNEL_DESC    710   //Channel 1 ~ 20, 1 Channel = 4 bytes
-#define RESERVE3        770   //Reserve3 between Channel and Firmware id check
-
-//Check Firmware type and version
-#define FIRMWAR_ID_ADDR 776 //776 : 0x59, 777 :0x58, 778 : 0x68 : Id Number, if not found id, erase eeprom(32~1023) for prevent system error.
-#define VERSION_ADDRESS 779   //check Firmware version
-//USER INFORMATION
-#define USER_CALLSIGN_KEY 780   //0x59
-#define USER_CALLSIGN_LEN 781   //1BYTE (OPTION + LENGTH) + CALLSIGN (MAXIMUM 18)
-#define USER_CALLSIGN_DAT 782   //CALL SIGN DATA  //direct EEPROM to LCD basic offset
-
-//AUTO KEY STRUCTURE
-//AUTO KEY USE 800 ~ 1023
-#define CW_AUTO_MAGIC_KEY 800   //0x73
-#define CW_AUTO_COUNT     801   //0 ~ 255
-#define CW_AUTO_DATA      803   //[INDEX, INDEX, INDEX,DATA,DATA, DATA (Positon offset is CW_AUTO_DATA
-#define CW_DATA_OFSTADJ   CW_AUTO_DATA - USER_CALLSIGN_DAT   //offset adjust for ditect eeprom to lcd (basic offset is USER_CALLSIGN_DAT
-#define CW_STATION_LEN    1023  //value range : 4 ~ 30
 /**
  * The uBITX is an upconnversion transceiver. The first IF is at 45 MHz.
  * The first IF frequency is not exactly at 45 Mhz but about 5 khz lower,
@@ -241,11 +83,6 @@ int count = 0;          //to generally count ticks, loops, etc
 //When the frequency is moved by the dial, the maximum value by KD8CEC
 #define LOWEST_FREQ_DIAL  (3000l)
 #define HIGHEST_FREQ_DIAL (60000000l)
-
-//we directly generate the CW by programmin the Si5351 to the cw tx frequency, hence, both are different modes
-//these are the parameter passed to startTx
-#define TX_SSB 0
-#define TX_CW 1
 
 char ritOn = 0;
 char vfoActive = VFO_A;
@@ -334,15 +171,25 @@ unsigned char txFilter = 0;   //which of the four transmit filters are in use
 boolean modeCalibrate = false;//this mode of menus shows extended menus to calibrate the oscillators and choose the proper
                               //beat frequency
                               
-byte advancedFreqOption1;     //255 : Bit0: use IFTune_Value, Bit1 : use Stored enabled SDR Mode, Bit2 : dynamic sdr frequency
+byte advancedFreqOption1;     //255 : Bit0: use IFTune_Value, Bit1 : use Stored enabled SDR Mode, Bit2~Bit3 : dynamic sdr frequency,  bit 7: IFTune_Value Reverse for DIY uBITX
 byte attLevel = 0;            //ATT : RF Gain Control (Receive) <-- IF1 Shift, 0 : Off, ShiftValue is attLevel * 100; attLevel 150 = 15K
-char if1TuneValue = 0;        //0 : OFF, IF1 + if1TuneValue * 100; // + - 12500;
+byte if1TuneValue = 0;        //0 : OFF, IF1 + if1TuneValue * 100; // + - 12500;
 byte sdrModeOn = 0;           //SDR MODE ON / OFF
-unsigned long SDR_Center_Freq; //DEFAULT Frequency : 32000000
+unsigned long SDR_Center_Freq; //
 
 unsigned long beforeIdle_ProcessTime = 0; //for check Idle time
 byte line2DisplayStatus = 0;  //0:Clear, 1 : menu, 1: DisplayFrom Idle, 
 char lcdMeter[17];
+byte sMeterLevels[9];
+
+//Current ADC Value for S.Meter, and S Meter Level
+int currentSMeter = 0;
+byte scaledSMeter = 0;
+
+byte I2C_LCD_MASTER_ADDRESS;        //0x27  //if Set I2C Address by uBITX Manager, read from EEProm
+byte I2C_LCD_SECOND_ADDRESS;         //only using Dual LCD Mode
+
+byte KeyValues[16][3];
 
 byte isIFShift = 0;     //1 = ifShift, 2 extend
 int ifShiftValue = 0;  //
@@ -354,8 +201,8 @@ int ifShiftValue = 0;  //
 
 //Ham Band
 #define MAX_LIMIT_RANGE 10  //because limited eeprom size
-byte useHamBandCount = 0;  //0 use full range frequency
-byte tuneTXType = 0;      //0 : use full range, 1 : just Change Dial speed, 2 : just ham band change, but can general band by tune, 3 : only ham band (just support 0, 2 (0.26 version))
+byte useHamBandCount = 0;   //0 use full range frequency
+byte tuneTXType = 0;        //0 : use full range, 1 : just Change Dial speed, 2 : just ham band change, but can general band by tune, 3 : only ham band (just support 0, 2 (0.26 version))
                           //100 : use full range but not TX on general band, 101 : just change dial speed but.. 2 : jut... but.. 3 : only ham band  (just support 100, 102 (0.26 version))
 unsigned int hamBandRange[MAX_LIMIT_RANGE][2];  // =  //Khz because reduce use memory
 
@@ -407,8 +254,8 @@ void setNextHamBandFreq(unsigned long f, char moveDirection)
   if ((resultFreq / 1000) < hamBandRange[(unsigned char)findedIndex][0] || (resultFreq / 1000) > hamBandRange[(unsigned char)findedIndex][1])
     resultFreq = (unsigned long)(hamBandRange[(unsigned char)findedIndex][0]) * 1000;
 
-  setFrequency(resultFreq);
   byteToMode(loadMode, 1);
+  setFrequency(resultFreq);
 }
 
 void saveBandFreqByIndex(unsigned long f, unsigned long mode, char bandIndex) {
@@ -509,73 +356,87 @@ void setFrequency(unsigned long f){
   setTXFilters(f);
 
   unsigned long appliedCarrier = ((cwMode == 0 ? usbCarrier : cwmCarrier) + (isIFShift && (inTx == 0) ? ifShiftValue : 0));
-  long if1AdjustValue = ((inTx == 0) ? (attLevel * 100) : 0) + (if1TuneValue * 100); //if1Tune RX, TX Enabled, ATT : only RX Mode
+  int appliedTuneValue = 0;
 
-  if (sdrModeOn && (inTx == 0))  //IF SDR
+  //applied if tune 
+  //byte advancedFreqOption1;     //255 : Bit0: use IFTune_Value, Bit1 : use Stored enabled SDR Mode, Bit2 : dynamic sdr frequency0, Bit3 : dynamic sdr frequency1, bit 7: IFTune_Value Reverse for DIY uBITX
+  if ((advancedFreqOption1 & 0x01) != 0x00)
+  {
+    appliedTuneValue = if1TuneValue;
+
+    //In the LSB state, the optimum reception value was found. To apply to USB, 3Khz decrease is required.
+    if (sdrModeOn && (inTx == 0))
+      appliedTuneValue -= 15; //decrease 1.55Khz
+      
+    //if (isUSB)
+    if (cwMode == 2 || (cwMode == 0 && (isUSB)))    
+      appliedTuneValue -= 30; //decrease 3Khz
+  }
+
+   //if1Tune RX, TX Enabled, ATT : only RX Mode
+  //The IF Tune shall be measured at the LSB. Then, move the 3Khz down for USB.
+  long if1AdjustValue = ((inTx == 0) ? (attLevel * 100) : 0) + (appliedTuneValue * 100); //if1Tune RX, TX Enabled, ATT : only RX Mode  //5600
+
+  //for DIY uBITX (custom filter)
+  if ((advancedFreqOption1 & 0x80) != 0x00)  //Reverse IF Tune (- Value for DIY uBITX)
+    if1AdjustValue *= -1;
+    
+  if (sdrModeOn && (inTx == 0))  //IF SDR MODE
   {
     //Fixed Frequency SDR (Default Frequency : 32Mhz, available change sdr Frequency by uBITX Manager)
     //Dynamic Frequency is for SWL without cat
-    //Offset Frequency + Mhz, 
-    //Example : Offset Frequency : 30Mhz and current Frequncy is 7.080 => 37.080Mhz
-    //          Offset Frequency : 30Mhz and current Frequncy is 14.074 => 34.074Mhz
 
-    //Dynamic Frequency
-    //if (advancedFreqOption1 & 0x04 != 0x00)
-    //  if1AdjustValue += (f % 10000000);
+    //byte advancedFreqOption1;     //255 : Bit0: use IFTune_Value, Bit1 : use Stored enabled SDR Mode, Bit2 : dynamic sdr frequency0, Bit3 : dynamic sdr frequency1, bit 7: IFTune_Value Reverse for DIY uBITX
+    long moveFrequency = 0;
+    //7 6 5 4 3 2 1 0
+    //        _ _     <-- SDR Freuqncy Option
+    byte sdrOption = (advancedFreqOption1 >> 2) & 0x03;
+
+    if (sdrOption == 1) // SDR Frequency + frequenc
+    {
+      //example : offset Freq : 20 Mhz and frequency = 7.080 => 27.080 Mhz
+      //example : offset Freq : 0 Mhz and frequency = 7.080 => 7.080 Mhz
+      //for available HF, SDR
+      moveFrequency = f;
+    }
+    else if (sdrOption == 2)  //Mhz move
+    {
+      //Offset Frequency + Mhz, 
+      //Example : Offset Frequency : 30Mhz and current Frequncy is 7.080 => 37.080Mhz
+      //          Offset Frequency : 30Mhz and current Frequncy is 14.074 => 34.074Mhz
+      moveFrequency = (f % 10000000);
+    }
+    else if (sdrOption == 3)  //Khz move
+    {
+      //Offset Frequency + Khz, 
+      //Example : Offset Frequency : 30Mhz and current Frequncy is 7.080 => 30.080Mhz
+      //          Offset Frequency : 30Mhz and current Frequncy is 14.074 => 30.074Mhz
+      moveFrequency = (f % 1000000);
+    }
 
     si5351bx_setfreq(2, 44991500 + if1AdjustValue + f);
     si5351bx_setfreq(1, 44991500 
       + if1AdjustValue 
       + SDR_Center_Freq 
-      + ((advancedFreqOption1 & 0x04) == 0x00 ? 0 : (f % 10000000))
+      //+ ((advancedFreqOption1 & 0x04) == 0x00 ? 0 : (f % 10000000))
+      + moveFrequency
       + 2390);
-    /*
-    si5351bx_setfreq(2, 44999500 + f);
-    si5351bx_setfreq(1, 44999500 + SDR_Center_Freq + 2390);
-    */
   }
   else
   {
-    if (cwMode == 1 || (cwMode == 0 && (!isUSB)))
+    if (cwMode == 1 || (cwMode == 0 && (!isUSB))) //cwl or lsb
     {
       //CWL(cwMode == 1) or LSB (cwMode == 0 && (!isUSB))
       si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f);
-      //si5351bx_setfreq(1, SECOND_OSC_LSB + if1AdjustValue - (sdrModeOn ? (SDR_Center_Freq- usbCarrier) : 0));
       si5351bx_setfreq(1, SECOND_OSC_LSB + if1AdjustValue);
     }
-    else
+    else  //cwu or usb
     {
-      //CWU (cwMode == 2) or LSB (cwMode == 0 and isUSB)
+      //CWU (cwMode == 2) or USB (cwMode == 0 and isUSB)
       si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
-      //si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue + (sdrModeOn ? (SDR_Center_Freq- usbCarrier) : 0));  //Increase LO Frequency => 1198500 -> 32Mhz
-      si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);  //Increase LO Frequency => 1198500 -> 32Mhz
+      si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
     }
   }
-  
-  /*
-  if (cwMode == 0)
-  {
-    if (isUSB){
-      si5351bx_setfreq(2, SECOND_OSC_USB - appliedCarrier + f);
-      si5351bx_setfreq(1, SECOND_OSC_USB);
-    }
-    else{
-      si5351bx_setfreq(2, SECOND_OSC_LSB + appliedCarrier + f);
-      si5351bx_setfreq(1, SECOND_OSC_LSB);
-    }
-  }
-  else
-  {
-    if (cwMode == 1){ //CWL
-      si5351bx_setfreq(2, SECOND_OSC_LSB + appliedCarrier + f);
-      si5351bx_setfreq(1, SECOND_OSC_LSB);
-    }
-    else{             //CWU
-      si5351bx_setfreq(2, SECOND_OSC_USB - appliedCarrier + f);
-      si5351bx_setfreq(1, SECOND_OSC_USB);
-    }
-  }
-  */
   
   frequency = f;
 }
@@ -726,7 +587,168 @@ void checkPTT(){
   if (digitalRead(PTT) == 1 && inTx == 1)
     stopTx();
 }
+#ifdef EXTEND_KEY_GROUP1  
+void checkButton(){
+  char currentBandIndex = -1;
+  
+  //only if the button is pressed
+  int keyStatus = getBtnStatus();
+  if (keyStatus == -1)
+    return;
+    
+  delay(50);
+  keyStatus = getBtnStatus();   //will be remove 3 lines
+  if (keyStatus == -1)
+    return;
+    
+  if (keyStatus == FKEY_PRESS)  //Menu Key
+    doMenu();
+  else if (keyStatus <= FKEY_TYPE_MAX)  //EXTEND KEY GROUP #1
+  {
 
+    switch(keyStatus)
+    {
+      case FKEY_MODE :
+        if (cwMode == 1)
+        {
+          cwMode = 2;
+        }
+        else if (cwMode == 2)
+        {
+          cwMode = 0;
+          isUSB = 0;
+        }
+        else if (isUSB == 0)
+        {
+          isUSB = 1;
+        }
+        else
+        {
+          cwMode = 1;
+        }
+        break;
+      case FKEY_BANDUP :
+      case FKEY_BANDDOWN :
+        //Save Band Information
+        if (tuneTXType == 2 || tuneTXType == 3 || tuneTXType == 102 || tuneTXType == 103) { //only ham band move
+          currentBandIndex = getIndexHambanBbyFreq(frequency);
+          
+          if (currentBandIndex >= 0) {
+            saveBandFreqByIndex(frequency, modeToByte(), currentBandIndex);
+          }
+        }
+        setNextHamBandFreq(frequency, keyStatus == FKEY_BANDDOWN ? -1 : 1);  //Prior Band      
+        break;
+
+      case FKEY_STEP :
+        if (++tuneStepIndex > 5)
+          tuneStepIndex = 1;
+  
+        EEPROM.put(TUNING_STEP, tuneStepIndex);
+        printLine2ClearAndUpdate();
+        break;
+
+      case FKEY_VFOCHANGE :
+        menuVfoToggle(1); //Vfo Toggle
+        break;
+      
+      case FKEY_SPLIT :
+        menuSplitOnOff(1);
+        break;
+      case  FKEY_TXOFF:
+        menuTxOnOff(1, 0x01);
+        break;
+      case  FKEY_SDRMODE :
+         menuSDROnOff(1);
+        break;
+      case FKEY_RIT :
+        menuRitToggle(1);
+        break;
+    }
+    /*
+    if (keyStatus == FKEY_MODE) //Press Mode Key
+    {
+      if (cwMode == 1)
+      {
+        cwMode = 2;
+      }
+      else if (cwMode == 2)
+      {
+        cwMode = 0;
+        isUSB = 0;
+      }
+      else if (isUSB == 0)
+      {
+        isUSB = 1;
+      }
+      else
+      {
+        cwMode = 1;
+      }
+    }
+    else if (keyStatus == FKEY_BANDUP || keyStatus == FKEY_BANDDOWN)  //Press Mode Key
+    {
+
+      char currentBandIndex = -1;
+      
+      //Save Band Information
+      if (tuneTXType == 2 || tuneTXType == 3 || tuneTXType == 102 || tuneTXType == 103) { //only ham band move
+        currentBandIndex = getIndexHambanBbyFreq(frequency);
+        
+        if (currentBandIndex >= 0) {
+          saveBandFreqByIndex(frequency, modeToByte(), currentBandIndex);
+        }
+      }
+      
+      setNextHamBandFreq(frequency, keyStatus == FKEY_BANDDOWN ? -1 : 1);  //Prior Band      
+    }
+    else if (keyStatus == FKEY_STEP)  //FKEY_BANDUP
+    {
+      if (++tuneStepIndex > 5)
+        tuneStepIndex = 1;
+
+      EEPROM.put(TUNING_STEP, tuneStepIndex);
+      printLine2ClearAndUpdate();
+    }
+
+    else if (keyStatus == FKEY_VFOCHANGE)
+    {
+      menuVfoToggle(1); //Vfo Toggle
+    }
+    else if (keyStatus == FKEY_SPLIT)
+    {
+      menuSplitOnOff(1);
+    }
+    else if (keyStatus == FKEY_TXOFF)
+    {
+      menuTxOnOff(1, 0x01);
+    }
+    else if (keyStatus == FKEY_SDRMODE)
+    {
+      menuSDROnOff(1);
+    }
+    else if (keyStatus == FKEY_RIT)
+    {
+      menuRitToggle(1);
+    }
+    */
+      
+    FrequencyToVFO(1);
+    SetCarrierFreq();
+    setFrequency(frequency);
+    //delay_background(delayTime, 0);
+    updateDisplay();
+  }
+  
+  //wait for the button to go up again
+  while(keyStatus == getBtnStatus()) {
+    delay(10);
+    Check_Cat(0);
+  }
+  //delay(50);//debounce
+}
+
+#else
 void checkButton(){
   //only if the button is pressed
   if (!btnDown())
@@ -744,7 +766,7 @@ void checkButton(){
   }
   //delay(50);//debounce
 }
-
+#endif
 
 /************************************
 Replace function by KD8CEC
@@ -919,6 +941,15 @@ void initSettings(){
   if (EEPROM.read(VERSION_ADDRESS) != FIRMWARE_VERSION_NUM)
     EEPROM.write(VERSION_ADDRESS, FIRMWARE_VERSION_NUM);
 
+  //Backup Calibration Setting from Factory Setup
+  //Check Factory Setting Backup Y/N
+  if (EEPROM.read(FACTORY_BACKUP_YN) != 0x13) {
+    EEPROM.write(FACTORY_BACKUP_YN, 0x13);  //Set Backup Y/N
+    
+    for (unsigned int i = 0; i < 32; i++) //factory setting range
+      EEPROM.write(FACTORY_VALUES + i, EEPROM.read(i)); //0~31 => 65~96
+  }
+
   EEPROM.get(CW_CAL, cwmCarrier);
 
   //for Save VFO_A_MODE to eeprom
@@ -945,11 +976,21 @@ void initSettings(){
     else
       keyerControl |= IAMBICB;
   }
-    
 
   EEPROM.get(COMMON_OPTION0, commonOption0);
   EEPROM.get(DISPLAY_OPTION1, displayOption1);
   EEPROM.get(DISPLAY_OPTION2, displayOption2);
+
+  for (byte i = 0; i < 8; i++) {
+    sMeterLevels[i + 1] = EEPROM.read(S_METER_LEVELS + i);
+  }
+
+  //KeyValues
+  for (byte i = 0; i < 16; i++) {
+    KeyValues[i][0] = EEPROM.read(EXTENDED_KEY_RANGE + (i * 3));        //RANGE : Start Value
+    KeyValues[i][1] = EEPROM.read(EXTENDED_KEY_RANGE + (i * 3) + 1);    //RANGE : End Value
+    KeyValues[i][2] = EEPROM.read(EXTENDED_KEY_RANGE + (i * 3) + 2);    //KEY TYPE 
+  }
 
   //User callsign information
   if (EEPROM.read(USER_CALLSIGN_KEY) == 0x59)
@@ -1010,7 +1051,7 @@ void initSettings(){
     arTuneStep[0] = 10;
     arTuneStep[1] = 50;
     arTuneStep[2] = 100;
-    arTuneStep[3] = 500;    
+    arTuneStep[3] = 500;
     arTuneStep[4] = 1000;
   }
 
@@ -1062,21 +1103,21 @@ void initSettings(){
   //Advanced Freq control
   EEPROM.get(ADVANCED_FREQ_OPTION1, advancedFreqOption1);
 
-  //use Advanced Frequency Control
-  if (advancedFreqOption1 & 0x01 != 0x00)
+  //byte advancedFreqOption1;     //255 : Bit0: use IFTune_Value, Bit1 : use Stored enabled SDR Mode, Bit2 : dynamic sdr frequency0, Bit3 : dynamic sdr frequency1, bit 7: IFTune_Value Reverse for DIY uBITX
+  if ((advancedFreqOption1 & 0x01) != 0x00)
   {
     EEPROM.get(IF1_CAL, if1TuneValue);
 
     //Stored Enabled SDR Mode
-    if (advancedFreqOption1 & 0x02 != 0x00)
+    if ((advancedFreqOption1 & 0x02) != 0x00)
     {
       EEPROM.get(ENABLE_SDR, sdrModeOn);
     }
   }
   
   EEPROM.get(SDR_FREQUNCY, SDR_Center_Freq);
-  if (SDR_Center_Freq == 0)
-    SDR_Center_Freq = 32000000;
+  //if (SDR_Center_Freq == 0)
+  //  SDR_Center_Freq = 32000000;
 
   //default Value (for original hardware)
   if (cwAdcSTFrom >= cwAdcSTTo)
@@ -1184,6 +1225,40 @@ void initPorts(){
   digitalWrite(CW_KEY, 0);
 }
 
+//Recovery Factory Setting Values 
+void factory_Recovery()
+{
+  if (EEPROM.read(FACTORY_BACKUP_YN) != 0x13)
+    return;
+
+  if (digitalRead(PTT) == 0)  //Do not proceed if PTT is pressed to prevent malfunction.
+    return;
+    
+  printLineF2(F("Factory Recovery"));
+  delay(2000);
+  if (!btnDown())
+    return;
+
+  printLineF2(F("IF you continue"));
+  printLineF1(F("release the key"));
+  delay(2000);
+  if (btnDown())
+    return;
+  
+  printLineF1(F("Press Key PTT"));
+  delay(2000);
+  if (digitalRead(PTT) == 0)
+  {
+    for (unsigned int i = 0; i < 32; i++) //factory setting range
+      EEPROM.write(i, EEPROM.read(FACTORY_VALUES + i)); //65~96 => 0~31
+
+    //printLineF2(F("CompleteRecovery"));
+    printLineF1(F("Power Reset!"));
+    while(1);   //Hold 
+  }
+}
+
+
 void setup()
 {
   /*
@@ -1198,18 +1273,33 @@ void setup()
   //while(1);
   //end section of test
   */
+
+  //Load I2C LCD Address for I2C LCD 
+  //I2C LCD Parametere
+#ifdef USE_I2C_LCD  
+  EEPROM.get(I2C_LCD_MASTER, I2C_LCD_MASTER_ADDRESS);
+  EEPROM.get(I2C_LCD_SECOND, I2C_LCD_SECOND_ADDRESS);
+
+  if (I2C_LCD_MASTER_ADDRESS < 0x10 || I2C_LCD_MASTER_ADDRESS > 0xF0)
+    I2C_LCD_MASTER_ADDRESS = I2C_LCD_MASTER_ADDRESS_DEFAULT;
+    
+  if (I2C_LCD_SECOND_ADDRESS < 0x10 || I2C_LCD_SECOND_ADDRESS > 0xF0)
+    I2C_LCD_SECOND_ADDRESS = I2C_LCD_SECOND_ADDRESS_DEFAULT;
+#endif  
   
   //Serial.begin(9600);
   LCD_Init();
-  printLineF(1, FIRMWARE_VERSION_INFO); 
+  //printLineF(1, FIRMWARE_VERSION_INFO);
+  DisplayVersionInfo(FIRMWARE_VERSION_INFO);
 
   Init_Cat(38400, SERIAL_8N1);
   initSettings();
 
   if (userCallsignLength > 0 && ((userCallsignLength & 0x80) == 0x80)) {
     userCallsignLength = userCallsignLength & 0x7F;
-    printLineFromEEPRom(0, 0, 0, userCallsignLength -1, 0); //eeprom to lcd use offset (USER_CALLSIGN_DAT)
-    delay(500);
+    //printLineFromEEPRom(0, 0, 0, userCallsignLength -1, 0); //eeprom to lcd use offset (USER_CALLSIGN_DAT)
+    //delay(500);
+    DisplayCallsign(userCallsignLength);
   }
   else {
     printLineF(0, F("uBITX v0.20")); 
@@ -1218,6 +1308,11 @@ void setup()
   }
   
   initPorts();     
+
+#ifdef FACTORY_RECOVERY_BOOTUP
+  if (btnDown())
+    factory_Recovery();
+#endif
 
   byteToMode(vfoA_mode, 0);
   initOscillators();
@@ -1231,6 +1326,7 @@ void setup()
   if (btnDown())
     factory_alignment();
 #endif
+
 }
 
 //Auto save Frequency and Mode with Protected eeprom life by KD8CEC

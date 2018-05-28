@@ -23,21 +23,19 @@ Beta Tester :
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **********************************************************************************/
 
-#include <arduino.h>
 #include <EEPROM.h>
 #include "ubitx.h"
 
 //begin of test
 byte WsprToneCode[164];
 
-long lastTime=0;
+unsigned long lastTime=0;
 unsigned long TX_MSNB_P2;              // Si5351 register MSNB_P2  PLLB for Tx
 unsigned long TX_P2;    // Variable values for MSNB_P2 which defines the frequencies for the data
 
 extern int enc_read(void);
 
 byte WsprMSGCount = 0;
-#define PTT   (A3)
 
 #define WSPR_BAND1 401
 
@@ -48,7 +46,7 @@ void SendWSPRManage()
 {
   int knob = 0;
   byte knobPosition = 0;
-  char isNeedDisplayInfo = 0;
+  //char isNeedDisplayInfo = 0;
   char nowSelectedIndex = 0;
   char nowWsprStep = 0; //0 : select Message, 1 : select band, 2 : send
   char selectedWsprMessageIndex = -1;
@@ -56,8 +54,8 @@ void SendWSPRManage()
 
   unsigned long WsprTXFreq = 0;
   unsigned int WsprMultiChan = 0;
-  unsigned long prevFreq;
-  char loopIndex;
+  //unsigned long prevFreq;
+  byte loopIndex;
 
   delay_background(500, 0);
   
@@ -115,22 +113,9 @@ void SendWSPRManage()
         EEPROM.get(bandBuffIndex, WsprTXFreq); 
         EEPROM.get(bandBuffIndex + 4, WsprMultiChan); 
 
-        /*
-        //3, 4, 5, 6, 7
-        Wspr_Reg1[3] = EEPROM.read(bandBuffIndex + 6);
-        Wspr_Reg1[4] = EEPROM.read(bandBuffIndex + 7);
-        Wspr_Reg1[5] = EEPROM.read(bandBuffIndex + 8);
-        Wspr_Reg1[6] = EEPROM.read(bandBuffIndex + 9);
-        Wspr_Reg1[7] = EEPROM.read(bandBuffIndex + 10);
-        */
         for (loopIndex = 3; loopIndex < 8; loopIndex++)
           Wspr_Reg1[loopIndex] = EEPROM.read(bandBuffIndex + loopIndex + 3);
 
-        /*
-        Wspr_Reg2[2] = EEPROM.read(bandBuffIndex + 11);
-        Wspr_Reg2[3] = EEPROM.read(bandBuffIndex + 12);
-        Wspr_Reg2[4] = EEPROM.read(bandBuffIndex + 13);
-        */
         //2, 3, 4
         for (loopIndex = 2; loopIndex < 5; loopIndex++)
           Wspr_Reg2[loopIndex] = EEPROM.read(bandBuffIndex + loopIndex + 9);
@@ -138,18 +123,32 @@ void SendWSPRManage()
         TX_MSNB_P2 = ((unsigned long)Wspr_Reg1[5] & 0x0F) << 16 | ((unsigned long)Wspr_Reg1[6]) << 8 | Wspr_Reg1[7];
       }
 
-      ltoa(WsprTXFreq, b, DEC);
       if (digitalRead(PTT) == 0)
-        strcpy(c, "SEND:");
+        strcpy(c, "SEND: ");
       else
-        strcpy(c, "PTT->");
+        strcpy(c, "PTT-> ");
 
-      strcat(c, b);
+      //ltoa(WsprTXFreq, b, DEC);
+      //strcat(c, b);
+
+      //display frequency, Frequency to String for KD8CEC
+      unsigned long tmpFreq = WsprTXFreq;
+      for (int i = 15; i >= 6; i--) {
+        if (tmpFreq > 0) {
+          if (i == 12 || i == 8) c[i] = '.';
+          else {
+            c[i] = tmpFreq % 10 + 0x30;
+            tmpFreq /= 10;
+          }
+        }
+        else
+          c[i] = ' ';
+      }
+
       printLine1(c);
       
       if (digitalRead(PTT) == 0)
       {
-        //printLineF1(F("Transmitting"));
         //SEND WSPR
         //If you need to consider the Rit and Sprite modes, uncomment them below.
         //remark = To reduce the size of the program
