@@ -29,9 +29,13 @@
 //#define UBITX_DISPLAY_LCD1602I_DUAL   //I2C type 16 x02 LCD Dual
 //#define UBITX_DISPLAY_LCD2004P        //24 x 04 LCD (Parallel)
 //#define UBITX_DISPLAY_LCD2004I        //I2C type 24 x 04 LCD
+//#define UBITX_DISPLAY_NEXTION         //NEXTION LCD 
+//#define UBITX_CONTROL_MCU             //CONTROL MCU
 
-#define I2C_LCD_MASTER_ADDRESS_DEFAULT  0x3F     //0x27  //DEFAULT, if Set I2C Address by uBITX Manager, read from EEProm
-#define I2C_LCD_SECOND_ADDRESS_DEFAULT  0x27     //0x27  //only using Dual LCD Mode
+//#define UBITX_DISPLAY_NEXTION_SAFE      //Only EEProm Write 770~775
+#define I2C_LCD_MASTER_ADDRESS_DEFAULT  0x27     //0x27  //DEFAULT, if Set I2C Address by uBITX Manager, read from EEProm
+#define I2C_LCD_SECOND_ADDRESS_DEFAULT  0x3F     //0x27  //only using Dual LCD Mode
+
 
 #define EXTEND_KEY_GROUP1               //MODE, BAND(-), BAND(+), STEP
 //#define EXTEND_KEY_GROUP2             //Numeric (0~9), Point(.), Enter  //Not supported in Version 1.0x
@@ -52,6 +56,17 @@ extern byte I2C_LCD_SECOND_ADDRESS;     //only using Dual LCD Mode
 #elif defined(UBITX_DISPLAY_LCD2004I)
   #define USE_I2C_LCD
 #endif
+
+#ifdef UBITX_DISPLAY_NEXTION
+  #define USE_SW_SERIAL
+  #undef ENABLE_ADCMONITOR
+  #undef FACTORY_RECOVERY_BOOTUP  
+#elif defined(UBITX_CONTROL_MCU)
+  #define USE_SW_SERIAL
+  #undef ENABLE_ADCMONITOR
+  #undef FACTORY_RECOVERY_BOOTUP  
+#endif
+
 
 //==============================================================================
 // Hardware, Define PIN Usage
@@ -153,6 +168,7 @@ extern int currentSMeter;         //ADC Value for S.Meter
 extern byte scaledSMeter;         //Calculated S.Meter Level
 
 extern byte KeyValues[16][3];     //Set : Start Value, End Value, Key Type, 16 Set (3 * 16 = 48)
+extern byte TriggerBySW;   //Action Start from Nextion LCD, Other MCU
 
 extern void printLine1(const char *c);
 extern void printLine2(const char *c);
