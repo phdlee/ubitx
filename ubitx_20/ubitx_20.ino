@@ -6,8 +6,8 @@
 //    So I put + in the sense that it was improved one by one based on Original Firmware.
 //    This firmware has been gradually changed based on the original firmware created by Farhan, Jack, Jerry and others.
 
-#define FIRMWARE_VERSION_INFO F("+v1.080")  
-#define FIRMWARE_VERSION_NUM 0x03       //1st Complete Project : 1 (Version 1.061), 2st Project : 2
+#define FIRMWARE_VERSION_INFO F("+v1.095")  
+#define FIRMWARE_VERSION_NUM 0x04       //1st Complete Project : 1 (Version 1.061), 2st Project : 2, 1.08: 3, 1.09 : 4
 
 /**
  Cat Suppoort uBITX CEC Version
@@ -192,7 +192,9 @@ byte I2C_LCD_SECOND_ADDRESS;         //only using Dual LCD Mode
 byte KeyValues[16][3];
 
 byte isIFShift = 0;     //1 = ifShift, 2 extend
-int ifShiftValue = 0;  //
+int ifShiftValue = 0;   //
+
+byte TriggerBySW = 0;   //Action Start from Nextion LCD, Other MCU
                               
 /**
  * Below are the basic functions that control the uBitx. Understanding the functions before 
@@ -424,6 +426,7 @@ void setFrequency(unsigned long f){
   }
   else
   {
+/***********************  original code
     if (cwMode == 1 || (cwMode == 0 && (!isUSB))) //cwl or lsb
     {
       //CWL(cwMode == 1) or LSB (cwMode == 0 && (!isUSB))
@@ -436,6 +439,31 @@ void setFrequency(unsigned long f){
       si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
       si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
     }
+*/
+//////////////////////Changed code  w2ctx ---------------------
+    if (cwMode == 1 || (cwMode == 0 && (!isUSB))) { //cwl or lsb
+      //CWL(cwMode == 1) or LSB (cwMode == 0 && (!isUSB))
+      if (cwMode == 1) {
+        if ( inTx ) si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f);
+        else si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f - sideTone);
+        si5351bx_setfreq(1, SECOND_OSC_LSB + if1AdjustValue);
+      } else {
+        si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f );
+        si5351bx_setfreq(1, SECOND_OSC_LSB + if1AdjustValue);
+      }
+    } else { //cwu or usb
+      //CWU (cwMode == 2) or USB (cwMode == 0 and isUSB)
+      if (cwMode == 2 ) {
+        if ( inTx ) si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
+        else si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f + sideTone);
+        si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
+      } else {
+        si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
+        si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
+      }
+    }
+
+///////////////////////////////////////////////////////////////
   }
   
   frequency = f;
@@ -465,13 +493,17 @@ void startTx(byte txMode, byte isDisplayUpdate){
   }
   else 
   {
-    if (splitOn == 1) {
-      if (vfoActive == VFO_B) {
+    if (splitOn == 1) 
+    {
+      FrequencyToVFO(1);  //Save current Frequency and Mode to eeprom
+      if (vfoActive == VFO_B) 
+      {
         vfoActive = VFO_A;
         frequency = vfoA;
         byteToMode(vfoA_mode, 0);
       }
-      else if (vfoActive == VFO_A){
+      else if (vfoActive == VFO_A)
+      {
         vfoActive = VFO_B;
         frequency = vfoB;
         byteToMode(vfoB_mode, 0);
@@ -488,25 +520,32 @@ void startTx(byte txMode, byte isDisplayUpdate){
     si5351bx_setfreq(0, 0);
     si5351bx_setfreq(1, 0);
 
+
     //shif the first oscillator to the tx frequency directly
     //the key up and key down will toggle the carrier unbalancing
     //the exact cw frequency is the tuned frequency + sidetone
 
-    if (cwMode == 0)
-    {
-      if (isUSB)
-        si5351bx_setfreq(2, frequency + sideTone);
-      else
-        si5351bx_setfreq(2, frequency - sideTone); 
-    }
-    else if (cwMode == 1) //CWL
-    {
-        si5351bx_setfreq(2, frequency - sideTone); 
-    }
-    else  //CWU
-    {
-        si5351bx_setfreq(2, frequency + sideTone);
-    }
+    
+/////////////  Not needed  comment out  W2CTX//////////////////////
+//
+//    if (cwMode == 0)
+//    {
+//      if (isUSB)
+//        si5351bx_setfreq(2, frequency + sideTone);
+//      else
+//        si5351bx_setfreq(2, frequency - sideTone); 
+//    }
+//    else if (cwMode == 1) //CWL
+//    {
+//        si5351bx_setfreq(2, frequency - sideTone); 
+//    }
+//    else  //CWU
+//    {
+//        si5351bx_setfreq(2, frequency + sideTone);
+//    }
+////////////////////////////////// end   W2CTX
+//  add next line   W2CTX
+   si5351bx_setfreq(2, frequency);
   }
 
   //reduce latency time when begin of CW mode
@@ -602,7 +641,18 @@ void checkButton(){
     return;
     
   if (keyStatus == FKEY_PRESS)  //Menu Key
+  {
+    //for touch screen
+#ifdef USE_SW_SERIAL
+    SetSWActivePage(1);
     doMenu();
+
+    if (isCWAutoMode == 0)
+          SetSWActivePage(0);
+#else
+    doMenu();
+#endif    
+  }
   else if (keyStatus <= FKEY_TYPE_MAX)  //EXTEND KEY GROUP #1
   {
 
@@ -1294,11 +1344,10 @@ void setup()
 
   Init_Cat(38400, SERIAL_8N1);
   initSettings();
+  initPorts();     
 
   if (userCallsignLength > 0 && ((userCallsignLength & 0x80) == 0x80)) {
     userCallsignLength = userCallsignLength & 0x7F;
-    //printLineFromEEPRom(0, 0, 0, userCallsignLength -1, 0); //eeprom to lcd use offset (USER_CALLSIGN_DAT)
-    //delay(500);
     DisplayCallsign(userCallsignLength);
   }
   else {
@@ -1307,7 +1356,6 @@ void setup()
     clearLine2();
   }
   
-  initPorts();     
 
 #ifdef FACTORY_RECOVERY_BOOTUP
   if (btnDown())
@@ -1320,6 +1368,11 @@ void setup()
   frequency = vfoA;
   saveCheckFreq = frequency;  //for auto save frequency
   setFrequency(vfoA);
+
+#ifdef USE_SW_SERIAL
+  SendUbitxData();
+#endif
+  
   updateDisplay();
 
 #ifdef ENABLE_FACTORYALIGN
@@ -1383,4 +1436,9 @@ void loop(){
 
   //we check CAT after the encoder as it might put the radio into TX
   Check_Cat(inTx? 1 : 0);
+
+  //for SEND SW Serial
+  #ifdef USE_SW_SERIAL
+    SWS_Process();
+  #endif  
 }
