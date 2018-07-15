@@ -426,6 +426,7 @@ void setFrequency(unsigned long f){
   }
   else
   {
+/***********************  original code
     if (cwMode == 1 || (cwMode == 0 && (!isUSB))) //cwl or lsb
     {
       //CWL(cwMode == 1) or LSB (cwMode == 0 && (!isUSB))
@@ -438,6 +439,31 @@ void setFrequency(unsigned long f){
       si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
       si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
     }
+*/
+//////////////////////Changed code  w2ctx ---------------------
+    if (cwMode == 1 || (cwMode == 0 && (!isUSB))) { //cwl or lsb
+      //CWL(cwMode == 1) or LSB (cwMode == 0 && (!isUSB))
+      if (cwMode == 1) {
+        if ( inTx ) si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f);
+        else si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f - sideTone);
+        si5351bx_setfreq(1, SECOND_OSC_LSB + if1AdjustValue);
+      } else {
+        si5351bx_setfreq(2, SECOND_OSC_LSB + if1AdjustValue + appliedCarrier + f );
+        si5351bx_setfreq(1, SECOND_OSC_LSB + if1AdjustValue);
+      }
+    } else { //cwu or usb
+      //CWU (cwMode == 2) or USB (cwMode == 0 and isUSB)
+      if (cwMode == 2 ) {
+        if ( inTx ) si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
+        else si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f + sideTone);
+        si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
+      } else {
+        si5351bx_setfreq(2, SECOND_OSC_USB + if1AdjustValue - appliedCarrier + f);
+        si5351bx_setfreq(1, SECOND_OSC_USB + if1AdjustValue);
+      }
+    }
+
+///////////////////////////////////////////////////////////////
   }
   
   frequency = f;
@@ -494,25 +520,32 @@ void startTx(byte txMode, byte isDisplayUpdate){
     si5351bx_setfreq(0, 0);
     si5351bx_setfreq(1, 0);
 
+
     //shif the first oscillator to the tx frequency directly
     //the key up and key down will toggle the carrier unbalancing
     //the exact cw frequency is the tuned frequency + sidetone
 
-    if (cwMode == 0)
-    {
-      if (isUSB)
-        si5351bx_setfreq(2, frequency + sideTone);
-      else
-        si5351bx_setfreq(2, frequency - sideTone); 
-    }
-    else if (cwMode == 1) //CWL
-    {
-        si5351bx_setfreq(2, frequency - sideTone); 
-    }
-    else  //CWU
-    {
-        si5351bx_setfreq(2, frequency + sideTone);
-    }
+    
+/////////////  Not needed  comment out  W2CTX//////////////////////
+//
+//    if (cwMode == 0)
+//    {
+//      if (isUSB)
+//        si5351bx_setfreq(2, frequency + sideTone);
+//      else
+//        si5351bx_setfreq(2, frequency - sideTone); 
+//    }
+//    else if (cwMode == 1) //CWL
+//    {
+//        si5351bx_setfreq(2, frequency - sideTone); 
+//    }
+//    else  //CWU
+//    {
+//        si5351bx_setfreq(2, frequency + sideTone);
+//    }
+////////////////////////////////// end   W2CTX
+//  add next line   W2CTX
+   si5351bx_setfreq(2, frequency);
   }
 
   //reduce latency time when begin of CW mode
