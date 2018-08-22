@@ -104,9 +104,9 @@ void menuBand(int btn){
         }
       }       //end of only ham band move
       else {  //original source
-        if (knob < 0 && frequency > 3000000l)
+        if (knob < 0 && frequency > LOWEST_FREQ)
           setFrequency(frequency - 200000l);
-        if (knob > 0 && frequency < 30000000l)
+        if (knob > 0 && frequency < HIGHEST_FREQ)
           setFrequency(frequency + 200000l);
 
         if (frequency > 10000000l)
